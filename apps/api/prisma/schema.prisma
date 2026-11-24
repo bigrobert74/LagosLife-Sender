@@ -1,0 +1,391 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  SUPPORT
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAYMENT_SUBMITTED
+  PAYMENT_UNDER_REVIEW
+  PAYMENT_VERIFIED
+  PAYMENT_REJECTED
+  WAITING_FOR_DELIVERY
+  DELIVERY_PROCESSING
+  COMPLETED
+  DELIVERY_FAILED
+  CANCELLED
+  EXPIRED
+}
+
+enum InventoryTxType {
+  OWNER_DEPOSIT
+  MANUAL_ADJUSTMENT
+  ORDER_DELIVERY_DEBIT
+  ORDER_CANCELLATION_RESTORE
+}
+
+model User {
+  id                  String   @id @default(uuid())
+  email               String?  @unique
+  phoneNumber         String?
+  defaultGameUsername String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  orders              Order[]
+
+  @@map("users")
+}
+
+model AdminUser {
+  id           String    @id @default(uuid())
+  username     String    @unique
+  email        String    @unique
+  passwordHash String
+  role         Role      @default(ADMIN)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  verificationLogs      PaymentVerificationLog[]
+  deliveryRecords       DeliveryRecord[]
+  auditLogs             AuditLog[]
+  inventoryTransactions InventoryTransaction[]
+
+  @@map("admin_users")
+}
+
+model CurrencyPackage {
+  id                 String   @id @default(uuid())
+  name               String
+  slug               String   @unique
+  gameCurrencyAmount BigInt
+  nairaPrice         Decimal  @db.Decimal(12, 2)
+  badge              String?
+  isPopular          Boolean  @default(false)
+  isActive           Boolean  @default(true)
+  sortOrder          Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  orderItems         OrderItem[]
+
+  @@index([isActive, sortOrder])
+  @@map("currency_packages")
+}
+
+model Order {
+  id                    String      @id @default(uuid())
+  orderNumber           String      @unique
+  userId                String?
+  gameUsername          String
+  totalNairaAmount      Decimal     @db.Decimal(12, 2)
+  totalGameCurrency     BigInt
+  status                OrderStatus @default(PENDING_PAYMENT)
+  
+  bankNameSnapshot      String
+  accountNameSnapshot   String
+  accountNumberSnapshot String
+
+  customerEmail         String?
+  customerPhone         String?
+
+  expiresAt             DateTime
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+  completedAt           DateTime?
+
+  user                  User?       @relation(fields: [userId], references: [id])
+  orderItem             OrderItem?
+  paymentSubmissions    PaymentSubmission[]
+  verificationLogs      PaymentVerificationLog[]
+  deliveryRecord        DeliveryRecord?
+  notifications         Notification[]
+
+  @@index([status])
+  @@index([orderNumber])
+  @@index([gameUsername])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id                 String           @id @default(uuid())
+  orderId            String           @unique
+  packageId          String?
+  gameCurrencyAmount BigInt
+  nairaPriceSnapshot Decimal          @db.Decimal(12, 2)
+
+  order              Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  package            CurrencyPackage? @relation(fields: [packageId], references: [id])
+
+  @@map("order_items")
+}
+
+model PaymentSubmission {
+  id                   String           @id @default(uuid())
+  orderId              String
+  senderAccountName    String
+  senderBankName       String
+  transactionReference String
+  notes                String?
+  submittedAt          DateTime         @default(now())
+
+  order                Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  receipts             PaymentReceipt[]
+
+  @@index([orderId])
+  @@map("payment_submissions")
+}
+
+model PaymentReceipt {
+  id             String            @id @default(uuid())
+  submissionId   String
+  storageKey     String
+  fileName       String
+  mimeType       String
+  fileSizeBytes  Int
+  uploadedAt     DateTime          @default(now())
+
+  submission     PaymentSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@map("payment_receipts")
+}
+
+model PaymentVerificationLog {
+  id                      String    @id @default(uuid())
+  orderId                 String
+  adminUserId             String
+  verificationStatus      String
+  confirmedAmount         Decimal   @db.Decimal(12, 2)
+  bankStatementReference  String?
+  adminNotes              String?
+  verifiedAt              DateTime  @default(now())
+
+  order                   Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  adminUser               AdminUser @relation(fields: [adminUserId], references: [id])
+
+  @@index([orderId])
+  @@map("payment_verification_logs")
+}
+
+model DeliveryRecord {
+  id                    String    @id @default(uuid())
+  orderId               String    @unique
+  adminUserId           String
+  recipientUsername     String
+  amountDelivered       BigInt
+  inGameTransactionRef  String?
+  deliveryNotes         String?
+  deliveredAt           DateTime  @default(now())
+
+  order                 Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  adminUser             AdminUser @relation(fields: [adminUserId], references: [id])
+
+  @@map("delivery_records")
+}
+
+model CurrencyInventory {
+  id                       String   @id @default(uuid())
+  recordedAvailableBalance BigInt   @default(0)
+  reservedBalance          BigInt   @default(0)
+  lifetimeDeliveredBalance BigInt   @default(0)
+  lastAuditedAt            DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  transactions             InventoryTransaction[]
+
+  @@map("currency_inventory")
+}
+
+model InventoryTransaction {
+  id              String          @id @default(uuid())
+  inventoryId     String
+  adminUserId     String?
+  orderId         String?
+  transactionType InventoryTxType
+  amount          BigInt
+  balanceBefore   BigInt
+  balanceAfter    BigInt
+  reason          String
+  createdAt       DateTime        @default(now())
+
+  inventory       CurrencyInventory @relation(fields: [inventoryId], references: [id])
+  adminUser       AdminUser?        @relation(fields: [adminUserId], references: [id])
+
+  @@index([createdAt])
+  @@map("inventory_transactions")
+}
+
+model AuditLog {
+  id          String    @id @default(uuid())
+  adminUserId String?
+  action      String
+  entityType  String
+  entityId    String?
+  diffBefore  Json?
+  diffAfter   Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime  @default(now())
+
+  adminUser   AdminUser? @relation(fields: [adminUserId], references: [id])
+
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
+
+model SystemSetting {
+  key         String   @id
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  orderId   String
+  channel   String
+  recipient String
+  subject   String
+  status    String
+  sentAt    DateTime?
+  createdAt DateTime @default(now())
+
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model OwnerGameAccount {
+  id                  String   @id @default(uuid())
+  username            String   @unique
+  accountIdentifier   String?
+  description         String?
+  status              String   @default("CONNECTED") // NOT_CONNECTED, CONNECTING, CONNECTED, AUTHORIZATION_EXPIRED, CONNECTION_FAILED, ACCESS_REVOKED
+  lastConnectedAt     DateTime?
+  lastSyncedAt        DateTime?
+  isStale             Boolean  @default(false)
+  cachedSavedBalance  BigInt   @default(0)
+  cachedNetWorth      BigInt   @default(0)
+  reservedBalance     BigInt   @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  credentials         GameAccountCredentials?
+  balanceSnapshots    GameBalanceSnapshot[]
+  gameTransactions    GameTransaction[]
+
+  @@map("owner_game_accounts")
+}
+
+model GameAccountCredentials {
+  id                 String   @id @default(uuid())
+  ownerAccountId     String   @unique
+  encryptedPin       String   // IV:AuthTag:Ciphertext (AES-256-GCM envelope)
+  pinMasked          String   @default("••••")
+  apiTokenEncrypted  String?
+  keyVersion         Int      @default(1)
+  updatedAt          DateTime @updatedAt
+
+  ownerAccount       OwnerGameAccount @relation(fields: [ownerAccountId], references: [id], onDelete: Cascade)
+
+  @@map("game_account_credentials")
+}
+
+model GameBalanceSnapshot {
+  id                 String   @id @default(uuid())
+  ownerAccountId     String
+  savedCash          BigInt
+  netWorth           BigInt
+  reservedBalance    BigInt   @default(0)
+  availableBalance   BigInt   @default(0)
+  rawPayload         Json?
+  syncedAt           DateTime @default(now())
+
+  ownerAccount       OwnerGameAccount @relation(fields: [ownerAccountId], references: [id], onDelete: Cascade)
+
+  @@index([syncedAt])
+  @@map("game_balance_snapshots")
+}
+
+model FulfillmentJob {
+  id                 String    @id @default(uuid())
+  orderId            String    @unique
+  orderNumber        String
+  targetPlayerId     String
+  targetUsername     String
+  currencyAmount     BigInt
+  status             String    @default("QUEUED") // QUEUED, PROCESSING, SUCCEEDED, FAILED, MANUAL_REVIEW_REQUIRED, CANCELLED
+  retryCount         Int       @default(0)
+  maxRetries         Int       @default(3)
+  lastError          String?
+  txId               String?
+  processedAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([status])
+  @@index([orderNumber])
+  @@map("fulfillment_jobs")
+}
+
+model GameTransaction {
+  id                 String   @id @default(uuid())
+  txId               String   @unique
+  orderId            String?
+  ownerAccountId     String
+  recipientId        String
+  recipientUsername  String
+  amount             BigInt
+  remainingBalance   BigInt
+  status             String   @default("CONFIRMED")
+  createdAt          DateTime @default(now())
+
+  ownerAccount       OwnerGameAccount @relation(fields: [ownerAccountId], references: [id], onDelete: Cascade)
+
+  @@index([recipientUsername])
+  @@index([createdAt])
+  @@map("game_transactions")
+}
+
+model FulfillmentSettings {
+  id                       String   @id @default("default")
+  autoFulfillmentEnabled   Boolean  @default(true)
+  emergencyShutdown        Boolean  @default(false)
+  maxSingleTransfer        BigInt   @default(5000000000)
+  dailyLimit               BigInt   @default(50000000000)
+  dailyDeliveredToday      BigInt   @default(0)
+  minReserveBalance        BigInt   @default(1000000000)
+  lowBalanceAlertThreshold BigInt   @default(5000000000)
+  autoRetryFailedJobs      Boolean  @default(true)
+  maxRetries               Int      @default(3)
+  updatedAt                DateTime @updatedAt
+
+  @@map("fulfillment_settings")
+}
+
+model IntegrationLog {
+  id         String   @id @default(uuid())
+  action     String
+  status     String   // SUCCESS, FAILED, WARNING
+  details    String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([action, createdAt])
+  @@map("integration_logs")
+}

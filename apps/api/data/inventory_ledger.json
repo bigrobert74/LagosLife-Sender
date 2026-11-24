@@ -1,0 +1,61 @@
+[
+  {
+    "id": "ledg-1795550120706-deliv",
+    "type": "ORDER_DELIVERED",
+    "amount": "200000000000",
+    "formattedAmount": "200 Billion",
+    "balanceBefore": "244900000000000",
+    "balanceAfter": "244700000000000",
+    "relatedOrderId": "LL-503589",
+    "adminUsername": "lead_admin",
+    "reason": "Payment verified & approved. In-game delivery completed for @badeletio. Ref: LL-TX-492779",
+    "timestamp": "2026-11-24T19:55:20.706Z"
+  },
+  {
+    "id": "ledg-1795547718785-deliv",
+    "type": "ORDER_DELIVERED",
+    "amount": "5000000000000",
+    "formattedAmount": "5 Trillion",
+    "balanceBefore": "249900000000000",
+    "balanceAfter": "244900000000000",
+    "relatedOrderId": "LL-432900",
+    "adminUsername": "lead_admin",
+    "reason": "Payment verified & approved. In-game delivery completed for @badeletio. Ref: LL-TX-950128",
+    "timestamp": "2026-11-24T19:15:18.785Z"
+  },
+  {
+    "id": "ledg-1795476072502-deliv",
+    "type": "ORDER_DELIVERED",
+    "amount": "50000000000",
+    "formattedAmount": "50 Billion",
+    "balanceBefore": "249950000000000",
+    "balanceAfter": "249900000000000",
+    "relatedOrderId": "LL-417466",
+    "adminUsername": "lead_admin",
+    "reason": "Payment verified & approved. In-game delivery completed for @persisted_trillionaire. Ref: LL-TX-072479",
+    "timestamp": "2026-11-23T23:21:12.502Z"
+  },
+  {
+    "id": "ledg-1795475869502-deliv",
+    "type": "ORDER_DELIVERED",
+    "amount": "50000000000",
+    "formattedAmount": "50 Billion",
+    "balanceBefore": "250000000000000",
+    "balanceAfter": "249950000000000",
+    "relatedOrderId": "LL-909871",
+    "adminUsername": "lead_admin",
+    "reason": "Payment verified & approved. In-game delivery completed for @persisted_trillionaire. Ref: LL-TX-675683",
+    "timestamp": "2026-11-23T23:17:49.502Z"
+  },
+  {
+    "id": "ledg-init-001",
+    "type": "OPENING_BALANCE",
+    "amount": "250000000000000",
+    "formattedAmount": "250 Trillion",
+    "balanceBefore": "0",
+    "balanceAfter": "250000000000000",
+    "adminUsername": "system_init",
+    "reason": "Initial Treasury Reserve initialization",
+    "timestamp": "2026-11-23T22:39:07.155Z"
+  }
+]

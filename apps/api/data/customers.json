@@ -1,0 +1,28 @@
+[
+  {
+    "id": "cust-persisted_trillionaire",
+    "gameUsername": "persisted_trillionaire",
+    "name": "Chief Oladele Persistent",
+    "customerPhone": "08099998888",
+    "customerEmail": "persist@test.com",
+    "totalOrders": 2,
+    "completedOrders": 1,
+    "totalSpendNaira": 1000,
+    "totalGameCurrencyPurchased": "0",
+    "firstOrderAt": "2026-11-23T23:14:10.317Z",
+    "lastOrderAt": "2026-11-23T23:14:10.317Z"
+  },
+  {
+    "id": "cust-badeletio",
+    "gameUsername": "badeletio",
+    "name": "badeletio",
+    "customerPhone": null,
+    "customerEmail": null,
+    "totalOrders": 2,
+    "completedOrders": 2,
+    "totalSpendNaira": 43000,
+    "totalGameCurrencyPurchased": "0",
+    "firstOrderAt": "2026-11-24T19:14:39.006Z",
+    "lastOrderAt": "2026-11-24T19:54:22.213Z"
+  }
+]

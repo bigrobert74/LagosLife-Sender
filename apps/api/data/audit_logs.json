@@ -1,0 +1,65 @@
+[
+  {
+    "id": "aud-1795550120723-936",
+    "adminUsername": "lead_admin",
+    "adminRole": "ADMIN",
+    "action": "APPROVE_PAYMENT",
+    "entityType": "ORDER",
+    "entityId": "LL-503589",
+    "details": "Payment of ₦3000 verified on bank statement. Order approved and delivered immediately to @badeletio. BankRef: STMT-1124-7475.",
+    "diffBefore": null,
+    "diffAfter": null,
+    "ipAddress": "127.0.0.1",
+    "timestamp": "2026-11-24T19:55:20.723Z"
+  },
+  {
+    "id": "aud-1795547718802-345",
+    "adminUsername": "lead_admin",
+    "adminRole": "ADMIN",
+    "action": "APPROVE_PAYMENT",
+    "entityType": "ORDER",
+    "entityId": "LL-432900",
+    "details": "Payment of ₦40000 verified on bank statement. Order approved and delivered immediately to @badeletio. BankRef: STMT-1124-4840.",
+    "diffBefore": null,
+    "diffAfter": null,
+    "ipAddress": "127.0.0.1",
+    "timestamp": "2026-11-24T19:15:18.802Z"
+  },
+  {
+    "id": "aud-1795547467377-45",
+    "adminUsername": "lead_admin",
+    "adminRole": "ADMIN",
+    "action": "REJECT_PAYMENT",
+    "entityType": "ORDER",
+    "entityId": "LL-325541",
+    "details": "Payment rejected. Reason: NO_FUNDS_RECEIVED. Notes: Account statement checked. No incoming credit matching amount or sender found.",
+    "diffBefore": null,
+    "diffAfter": null,
+    "ipAddress": "127.0.0.1",
+    "timestamp": "2026-11-24T19:11:07.378Z"
+  },
+  {
+    "id": "aud-1795475869515-372",
+    "adminUsername": "lead_admin",
+    "adminRole": "ADMIN",
+    "action": "APPROVE_PAYMENT",
+    "entityType": "ORDER",
+    "entityId": "LL-909871",
+    "details": "Payment of ₦12000 verified on bank statement. Order approved and delivered immediately to @persisted_trillionaire. BankRef: BANK-STMT-GTB-999888.",
+    "diffBefore": null,
+    "diffAfter": null,
+    "ipAddress": "127.0.0.1",
+    "timestamp": "2026-11-23T23:17:49.515Z"
+  },
+  {
+    "id": "audit-boot-001",
+    "adminUsername": "lead_admin",
+    "adminRole": "SUPER_ADMIN",
+    "action": "SYSTEM_BOOT",
+    "entityType": "SYSTEM",
+    "entityId": "sys-001",
+    "details": "Lagos Life database engine booted with persistent file storage.",
+    "ipAddress": "127.0.0.1",
+    "timestamp": "2026-11-23T22:39:07.158Z"
+  }
+]

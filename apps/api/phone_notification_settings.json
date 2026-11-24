@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "ntfyTopic": "lagoslife_orders_hq",
+  "notifyOnOrderCreated": true,
+  "notifyOnPaymentSubmitted": true,
+  "notifyOnOrderDelivered": true,
+  "lastTestSentAt": "2026-11-23T00:06:39.844Z"
+}

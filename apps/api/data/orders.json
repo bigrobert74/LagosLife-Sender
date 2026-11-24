@@ -1,0 +1,107 @@
+[
+  {
+    "id": "ord-1795475650317",
+    "orderNumber": "LL-325541",
+    "gameUsername": "persisted_trillionaire",
+    "targetPlayerId": "usr-001",
+    "totalGameCurrency": "50000000000",
+    "formattedGameAmount": "50 Billion",
+    "totalNairaAmount": 1000,
+    "status": "PAYMENT_REJECTED",
+    "bankNameSnapshot": "OPAY",
+    "accountNameSnapshot": "KELVIN",
+    "accountNumberSnapshot": "9036627043",
+    "customerEmail": "persist@test.com",
+    "customerPhone": "08099998888",
+    "expiresAt": "2026-11-24T00:16:05.914Z",
+    "createdAt": "2026-11-23T23:14:10.317Z",
+    "submittedPayment": {
+      "senderAccountName": "Chief Oladele Persistent",
+      "senderBankName": "Guaranty Trust Bank",
+      "transactionReference": "GTB-PERSIST-999888",
+      "notes": "Payment for 1.5 Trillion cash",
+      "submittedAt": "2026-11-23T23:16:05.925Z"
+    }
+  },
+  {
+    "id": "ord-1795475868263",
+    "orderNumber": "LL-909871",
+    "gameUsername": "persisted_trillionaire",
+    "targetPlayerId": "usr-001",
+    "totalGameCurrency": "50000000000",
+    "formattedGameAmount": "50 Billion",
+    "totalNairaAmount": 1000,
+    "status": "COMPLETED",
+    "bankNameSnapshot": "OPAY",
+    "accountNameSnapshot": "KELVIN",
+    "accountNumberSnapshot": "9036627043",
+    "customerEmail": "persist@test.com",
+    "customerPhone": "08099998888",
+    "expiresAt": "2026-11-24T00:17:48.263Z",
+    "createdAt": "2026-11-23T23:17:48.263Z",
+    "submittedPayment": {
+      "senderAccountName": "Chief Oladele Persistent",
+      "senderBankName": "Guaranty Trust Bank",
+      "transactionReference": "GTB-PERSIST-999888",
+      "notes": "Payment for 1.5 Trillion cash",
+      "submittedAt": "2026-11-23T23:17:48.279Z"
+    },
+    "deliveryRecord": {
+      "deliveredAt": "2026-11-23T23:17:49.502Z",
+      "inGameTransactionRef": "LL-TX-675683",
+      "adminNotes": "Approved and completed. Statement Ref: BANK-STMT-GTB-999888. Notes: Verified directly against bank feed"
+    }
+  },
+  {
+    "id": "ord-1795547679006",
+    "orderNumber": "LL-432900",
+    "gameUsername": "badeletio",
+    "targetPlayerId": "a999a47af3d14c57bd65",
+    "totalGameCurrency": "5000000000000",
+    "formattedGameAmount": "5 Trillion",
+    "totalNairaAmount": 40000,
+    "status": "COMPLETED",
+    "bankNameSnapshot": "OPAY",
+    "accountNameSnapshot": "KELVIN",
+    "accountNumberSnapshot": "9036627043",
+    "expiresAt": "2026-11-24T20:14:39.006Z",
+    "createdAt": "2026-11-24T19:14:39.006Z",
+    "submittedPayment": {
+      "senderAccountName": "Kelvin",
+      "senderBankName": "Zenith Bank",
+      "transactionReference": "TXN-1795547697439",
+      "submittedAt": "2026-11-24T19:14:57.446Z"
+    },
+    "deliveryRecord": {
+      "deliveredAt": "2026-11-24T19:15:18.785Z",
+      "inGameTransactionRef": "LL-TX-950128",
+      "adminNotes": "Approved and completed. Statement Ref: STMT-1124-4840. Notes: Verified credit in official mobile bank statement under Kelvin"
+    }
+  },
+  {
+    "id": "ord-1795550062213",
+    "orderNumber": "LL-503589",
+    "gameUsername": "badeletio",
+    "targetPlayerId": "a999a47af3d14c57bd65",
+    "totalGameCurrency": "200000000000",
+    "formattedGameAmount": "200 Billion",
+    "totalNairaAmount": 3000,
+    "status": "COMPLETED",
+    "bankNameSnapshot": "OPAY",
+    "accountNameSnapshot": "KELVIN",
+    "accountNumberSnapshot": "9036627043",
+    "expiresAt": "2026-11-24T20:54:22.213Z",
+    "createdAt": "2026-11-24T19:54:22.213Z",
+    "submittedPayment": {
+      "senderAccountName": "Kelvin",
+      "senderBankName": "OPay",
+      "transactionReference": "TXN-1795550102055",
+      "submittedAt": "2026-11-24T19:55:02.076Z"
+    },
+    "deliveryRecord": {
+      "deliveredAt": "2026-11-24T19:55:20.706Z",
+      "inGameTransactionRef": "LL-TX-492779",
+      "adminNotes": "Approved and completed. Statement Ref: STMT-1124-7475. Notes: Verified credit in official mobile bank statement under Kelvin"
+    }
+  }
+]

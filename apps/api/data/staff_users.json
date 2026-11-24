@@ -1,0 +1,27 @@
+[
+  {
+    "id": "usr-admin-001",
+    "username": "lead_admin",
+    "email": "admin@lagoslife.com",
+    "name": "Oladele (Lead)",
+    "role": "SUPER_ADMIN",
+    "isActive": true,
+    "lastLoginAt": "2026-11-23T22:39:07.162Z",
+    "permissions": [
+      "ALL"
+    ]
+  },
+  {
+    "id": "usr-admin-002",
+    "username": "payments_lead",
+    "email": "finance@lagoslife.com",
+    "name": "Finance Desk",
+    "role": "PAYMENT_ADMIN",
+    "isActive": true,
+    "lastLoginAt": "2026-11-23T22:39:07.162Z",
+    "permissions": [
+      "APPROVE_PAYMENTS",
+      "REJECT_PAYMENTS"
+    ]
+  }
+]

@@ -1,0 +1,14 @@
+{
+  "autoFulfillmentEnabled": true,
+  "emergencyShutdown": false,
+  "maxSingleTransfer": "100000000000000",
+  "dailyLimit": "200000000000000",
+  "dailyDeliveredToday": "50000000000",
+  "minReserveBalance": "1000000000",
+  "lowBalanceAlertThreshold": "5000000000",
+  "maxRetries": 3,
+  "gradualTransferEnabled": true,
+  "batchThresholdAmount": "100000000000",
+  "transferChunkAmount": "100000000000",
+  "transferCooldownSeconds": 70
+}

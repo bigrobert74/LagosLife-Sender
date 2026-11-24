@@ -1,0 +1,14 @@
+[
+  {
+    "id": "gtx-1795476072479-1",
+    "txId": "LL-TX-072479",
+    "orderNumber": "LL-417466",
+    "targetPlayerId": "usr-2090",
+    "targetUsername": "persisted_trillionaire",
+    "amount": "50000000000",
+    "remainingBalance": "941858780251761",
+    "batchNumber": 1,
+    "totalBatches": 1,
+    "createdAt": "2026-11-23T23:21:12.479Z"
+  }
+]
