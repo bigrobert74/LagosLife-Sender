@@ -74,9 +74,11 @@ export const OrderTrackerModal: React.FC<OrderTrackerModalProps> = ({
         return "We're checking your transfer against our official bank statement.";
       case 'COMPLETED':
       case 'PAYMENT_VERIFIED':
-      case 'WAITING_FOR_DELIVERY':
-      case 'DELIVERY_PROCESSING':
         return 'Your payment has been approved and your cash delivered in-game.';
+      case 'DELIVERY_PROCESSING':
+        return 'Payment verified! Your currency is actively being delivered in-game via automated 100B batches with 70s cooldown timers.';
+      case 'WAITING_FOR_DELIVERY':
+        return 'Payment approved! Awaiting automated dispatch.';
       case 'PAYMENT_REJECTED':
         return 'Payment could not be verified on our bank statement. Please contact support.';
       case 'CANCELLED':
@@ -87,12 +89,9 @@ export const OrderTrackerModal: React.FC<OrderTrackerModalProps> = ({
   };
 
   const getTimelineSteps = (status: string) => {
-    const isCompleted =
-      status === 'COMPLETED' ||
-      status === 'DELIVERY_PROCESSING' ||
-      status === 'WAITING_FOR_DELIVERY' ||
-      status === 'PAYMENT_VERIFIED';
-    const isReviewStage = status === 'PAYMENT_UNDER_REVIEW' || isCompleted;
+    const isCompleted = status === 'COMPLETED' || status === 'PAYMENT_VERIFIED';
+    const isDelivering = status === 'DELIVERY_PROCESSING';
+    const isVerified = isDelivering || isCompleted;
 
     return [
       {
@@ -101,13 +100,13 @@ export const OrderTrackerModal: React.FC<OrderTrackerModalProps> = ({
         completed: true,
       },
       {
-        label: 'Payment Verification',
+        label: 'Payment Verified',
         active: status === 'PAYMENT_UNDER_REVIEW',
-        completed: isCompleted,
+        completed: isVerified,
       },
       {
-        label: 'Approved & Delivered',
-        active: isCompleted,
+        label: isDelivering ? 'Transferring In-Game (70s Cooldown)' : 'Approved & Delivered',
+        active: isDelivering || isCompleted,
         completed: isCompleted,
       },
     ];
@@ -202,6 +201,32 @@ export const OrderTrackerModal: React.FC<OrderTrackerModalProps> = ({
               <span className="font-semibold text-white">Current Status: </span>
               {getStatusExplanation(order.status)}
             </div>
+
+            {/* In-Game Batch Delivery Progress */}
+            {order.totalBatches && order.totalBatches > 1 && (
+              <div className="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 space-y-2">
+                <div className="flex justify-between text-xs font-mono">
+                  <span className="text-emerald-400 font-bold">
+                    Batch Delivery Progress ({order.completedBatches || (order.status === 'COMPLETED' ? order.totalBatches : 0)}/{order.totalBatches})
+                  </span>
+                  <span className="text-slate-400">
+                    {order.status === 'COMPLETED' ? '100%' : `${Math.round(((order.completedBatches || 0) / order.totalBatches) * 100)}%`}
+                  </span>
+                </div>
+                <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="bg-emerald-400 h-full transition-all duration-500"
+                    style={{
+                      width: `${order.status === 'COMPLETED' ? 100 : Math.round(((order.completedBatches || 0) / order.totalBatches) * 100)}%`,
+                    }}
+                  />
+                </div>
+                <div className="text-[11px] text-slate-400 flex items-center justify-between">
+                  <span>Chunk: 100 Billion per transfer</span>
+                  <span className="text-emerald-400 font-mono">70s Cooldown Enforced</span>
+                </div>
+              </div>
+            )}
 
             {/* Timeline */}
             <div className="space-y-3 pt-2">

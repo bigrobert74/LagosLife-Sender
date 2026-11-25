@@ -93,11 +93,45 @@
     "completedBatches": 0,
     "transferCooldownSeconds": 70,
     "isBatchedOrder": true,
-    "status": "QUEUED",
+    "status": "CANCELLED",
     "retryCount": 1,
     "maxRetries": 3,
     "batchHistory": [],
     "createdAt": "2026-11-24T19:55:20.694Z",
-    "updatedAt": "2026-11-24T19:56:03.200Z"
+    "updatedAt": "2026-11-25T11:54:40.748Z",
+    "lastError": "Cancelled by administrator"
+  },
+  {
+    "id": "job-LL-393497",
+    "orderNumber": "LL-393497",
+    "customerName": "Customer",
+    "gameUsername": "badeletio",
+    "targetPlayerId": "a999a47af3d14c57bd65",
+    "currencyAmount": "500000000000",
+    "formattedAmount": "500,000,000,000",
+    "deliveredAmount": "100000000000",
+    "formattedDeliveredAmount": "100,000,000,000",
+    "progressPercent": 20,
+    "totalBatches": 5,
+    "completedBatches": 1,
+    "transferCooldownSeconds": 70,
+    "isBatchedOrder": true,
+    "status": "MANUAL_REVIEW_REQUIRED",
+    "retryCount": 1,
+    "maxRetries": 3,
+    "lastError": "Cannot read properties of undefined (reading 'toString')",
+    "batchHistory": [
+      {
+        "batchNumber": 1,
+        "totalBatches": 5,
+        "amount": "100000000000",
+        "formattedAmount": "100,000,000,000",
+        "txId": "34c24bf9d6424a7d8f42",
+        "timestamp": "2026-11-25T11:55:59.711Z"
+      }
+    ],
+    "createdAt": "2026-11-25T11:55:57.442Z",
+    "updatedAt": "2026-11-25T11:55:59.769Z",
+    "txId": "34c24bf9d6424a7d8f42"
   }
 ]

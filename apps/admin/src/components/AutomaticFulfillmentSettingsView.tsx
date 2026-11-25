@@ -426,9 +426,8 @@ export const AutomaticFulfillmentSettingsView: React.FC = () => {
                 />
                 <div className="flex items-center space-x-2 mt-2">
                   {[
-                    { label: '20B', val: '20000000000' },
-                    { label: '50B (Rec)', val: '50000000000' },
-                    { label: '100B', val: '100000000000' },
+                    { label: '50B', val: '50000000000' },
+                    { label: '100B (Recommended)', val: '100000000000' },
                   ].map((p) => (
                     <button
                       key={p.val}

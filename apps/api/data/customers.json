@@ -24,5 +24,18 @@
     "totalGameCurrencyPurchased": "0",
     "firstOrderAt": "2026-11-24T19:14:39.006Z",
     "lastOrderAt": "2026-11-24T19:54:22.213Z"
+  },
+  {
+    "id": "cust-badeletio",
+    "gameUsername": "badeletio",
+    "name": "badeletio",
+    "customerPhone": null,
+    "customerEmail": null,
+    "totalOrders": 3,
+    "completedOrders": 3,
+    "totalSpendNaira": 48000,
+    "totalGameCurrencyPurchased": "0",
+    "firstOrderAt": "2026-11-25T11:55:30.424Z",
+    "lastOrderAt": "2026-11-25T11:55:30.424Z"
   }
 ]

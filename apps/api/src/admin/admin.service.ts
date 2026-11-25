@@ -480,16 +480,23 @@ export class AdminService {
       }
     }
 
-    // IMMEDIATELY MARK COMPLETED AND STORE AS APPROVED - NO WAITING APPROVAL OR DELIVERY QUEUE
-    order.status = 'COMPLETED';
     const txId = automatedFulfillment?.txId || automatedFulfillment?.allTxRefs || `LL-TX-${Math.floor(100000 + Math.random() * 900000)}`;
+    // Check if fulfillment is executing batched gradual transfers (> 100B with 70s cooldown)
+    const isBatched = automatedFulfillment?.status === 'PROCESSING' || automatedFulfillment?.gradualTransfer;
 
-    if (!order.deliveryRecord) {
-      order.deliveryRecord = {
-        deliveredAt: new Date().toISOString(),
-        inGameTransactionRef: txId,
-        adminNotes: `Approved and completed. Statement Ref: ${body.bankStatementReference}. Notes: ${body.adminNotes || 'Approved'}`,
-      };
+    if (isBatched) {
+      order.status = 'DELIVERY_PROCESSING';
+      this.logger.log(`Order #${order.orderNumber} is batched (${automatedFulfillment?.totalBatches || 2} batches). Status set to DELIVERY_PROCESSING.`);
+    } else {
+      order.status = 'COMPLETED';
+
+      if (!order.deliveryRecord) {
+        order.deliveryRecord = {
+          deliveredAt: new Date().toISOString(),
+          inGameTransactionRef: txId,
+          adminNotes: `Approved and completed. Statement Ref: ${body.bankStatementReference}. Notes: ${body.adminNotes || 'Approved'}`,
+        };
+      }
     }
 
     const balanceBefore = this.recordedAvailableBalance;

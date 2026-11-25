@@ -103,5 +103,31 @@
       "inGameTransactionRef": "LL-TX-492779",
       "adminNotes": "Approved and completed. Statement Ref: STMT-1124-7475. Notes: Verified credit in official mobile bank statement under Kelvin"
     }
+  },
+  {
+    "id": "ord-1795607730424",
+    "orderNumber": "LL-393497",
+    "gameUsername": "badeletio",
+    "targetPlayerId": "a999a47af3d14c57bd65",
+    "totalGameCurrency": "500000000000",
+    "formattedGameAmount": "500 Billion",
+    "totalNairaAmount": 5000,
+    "status": "COMPLETED",
+    "bankNameSnapshot": "OPAY",
+    "accountNameSnapshot": "KELVIN",
+    "accountNumberSnapshot": "9036627043",
+    "expiresAt": "2026-11-25T12:55:30.424Z",
+    "createdAt": "2026-11-25T11:55:30.424Z",
+    "submittedPayment": {
+      "senderAccountName": "aaaa",
+      "senderBankName": "OPay",
+      "transactionReference": "TXN-1795607737235",
+      "submittedAt": "2026-11-25T11:55:37.314Z"
+    },
+    "deliveryRecord": {
+      "deliveredAt": "2026-11-25T11:55:57.468Z",
+      "inGameTransactionRef": "LL-TX-845949",
+      "adminNotes": "Approved and completed. Statement Ref: STMT-1125-5389. Notes: Verified credit in official mobile bank statement under aaaa"
+    }
   }
 ]

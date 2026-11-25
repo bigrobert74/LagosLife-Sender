@@ -167,8 +167,8 @@ export class OrdersService {
 
     let modified = false;
 
-    // Auto-migrate any legacy WAITING_FOR_DELIVERY status to COMPLETED
-    if (order.status === 'WAITING_FOR_DELIVERY' || order.status === 'DELIVERY_PROCESSING') {
+    // Auto-migrate any legacy WAITING_FOR_DELIVERY status to COMPLETED (active DELIVERY_PROCESSING remains in-progress)
+    if (order.status === 'WAITING_FOR_DELIVERY') {
       order.status = 'COMPLETED';
       if (!order.deliveryRecord) {
         order.deliveryRecord = {
@@ -288,7 +288,7 @@ export class OrdersService {
 
   async getAllOrders() {
     return this.databaseService.getAllOrders().map((o) => {
-      if (o.status === 'WAITING_FOR_DELIVERY' || o.status === 'DELIVERY_PROCESSING') {
+      if (o.status === 'WAITING_FOR_DELIVERY') {
         o.status = 'COMPLETED';
         if (!o.deliveryRecord) {
           o.deliveryRecord = {

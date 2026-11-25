@@ -1,5 +1,18 @@
 [
   {
+    "id": "aud-1795607757509-589",
+    "adminUsername": "lead_admin",
+    "adminRole": "ADMIN",
+    "action": "APPROVE_PAYMENT",
+    "entityType": "ORDER",
+    "entityId": "LL-393497",
+    "details": "Payment of ₦5000 verified on bank statement. Order approved and delivered immediately to @badeletio. BankRef: STMT-1125-5389.",
+    "diffBefore": null,
+    "diffAfter": null,
+    "ipAddress": "127.0.0.1",
+    "timestamp": "2026-11-25T11:55:57.510Z"
+  },
+  {
     "id": "aud-1795550120723-936",
     "adminUsername": "lead_admin",
     "adminRole": "ADMIN",

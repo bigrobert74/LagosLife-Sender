@@ -366,19 +366,22 @@ export class FulfillmentService {
     chunkAmountBig: bigint,
   ) {
     const cooldownMs = (this.settings.transferCooldownSeconds || 70) * 1000;
-    let remainingAmountBig = totalAmountBig;
-    let currentBatchNum = 1;
+    const alreadyDeliveredBig = BigInt(job.deliveredAmount || '0');
+    let remainingAmountBig = totalAmountBig > alreadyDeliveredBig ? totalAmountBig - alreadyDeliveredBig : 0n;
     let totalBatches = Math.max(1, Number((totalAmountBig + chunkAmountBig - 1n) / chunkAmountBig));
+    let currentBatchNum = Math.min(totalBatches, (job.completedBatches || 0) + 1);
 
     job.totalBatches = totalBatches;
     job.isBatchedOrder = isBatchedOrder;
-    job.transferCooldownSeconds = this.settings.transferCooldownSeconds;
+    job.status = 'PROCESSING';
+    job.transferCooldownSeconds = this.settings.transferCooldownSeconds || 70;
     this.activeTransferPromises.set(order.orderNumber, true);
+    this.databaseService.saveFulfillmentJob(job);
 
     this.logger.log(
       `Fulfillment for #${order.orderNumber}: Total ₦LL ${totalAmountBig} (${
         isBatchedOrder
-          ? `BATCHED in ${totalBatches} batches with ${this.settings.transferCooldownSeconds}s cooldown`
+          ? `BATCHED in ${totalBatches} batches with ${this.settings.transferCooldownSeconds}s cooldown (Starting at Batch ${currentBatchNum}/${totalBatches})`
           : 'SINGLE INSTANT TRANSFER'
       })`,
     );
@@ -391,7 +394,7 @@ export class FulfillmentService {
         }
 
         // Safety check 2: Check active cancellation
-        if (job.status === 'CANCELLED') {
+        if ((job.status as string) === 'CANCELLED') {
           throw new Error('Transfer cancelled by administrator');
         }
 
@@ -527,6 +530,16 @@ export class FulfillmentService {
         job.txId = sendResult.txId;
         job.updatedAt = new Date().toISOString();
 
+        // Safe remaining balance formatting (live server returns varying shapes)
+        const safeBalance =
+          sendResult?.balance != null
+            ? String(sendResult.balance)
+            : sendResult?.newBalance != null
+            ? String(sendResult.newBalance)
+            : sendResult?.currentBalance != null
+            ? String(sendResult.currentBalance)
+            : 'N/A';
+
         // Log transaction
         const txRecord = {
           id: `gtx-${Date.now()}-${currentBatchNum}`,
@@ -535,13 +548,27 @@ export class FulfillmentService {
           targetPlayerId,
           targetUsername: order.gameUsername,
           amount: batchSizeBig.toString(),
-          remainingBalance: sendResult.balance.toString(),
+          remainingBalance: safeBalance,
           batchNumber: currentBatchNum,
           totalBatches,
           createdAt: new Date().toISOString(),
         };
         this.transactions.unshift(txRecord);
         this.databaseService.addFulfillmentTransaction(txRecord);
+
+        // Update live order record with batch progress so clients can poll live status
+        try {
+          const liveOrder = this.databaseService.getOrder(order.orderNumber);
+          if (liveOrder) {
+            (liveOrder as any).deliveredAmount = job.deliveredAmount;
+            (liveOrder as any).completedBatches = job.completedBatches;
+            (liveOrder as any).totalBatches = job.totalBatches;
+            this.databaseService.saveOrder(liveOrder);
+          }
+        } catch (syncErr: any) {
+          this.logger.warn(`Could not sync live order progress for #${order.orderNumber}: ${syncErr.message}`);
+        }
+
         this.databaseService.saveFulfillmentJob(job);
         this.databaseService.saveFulfillmentSettings(this.settings);
 
@@ -552,11 +579,17 @@ export class FulfillmentService {
         if (remainingAmountBig > 0n) {
           const nextBatchAt = new Date(Date.now() + cooldownMs).toISOString();
           job.nextBatchAt = nextBatchAt;
+          job.status = 'PROCESSING';
+          this.databaseService.saveFulfillmentJob(job);
+
           this.logger.log(
-            `Batch completed. Enforcing strict ${this.settings.transferCooldownSeconds}s cooldown until ${nextBatchAt} before next batch...`,
+            `Batch ${job.completedBatches}/${totalBatches} delivered (₦LL ${Number(batchSizeBig).toLocaleString()} sent). Enforcing strict ${this.settings.transferCooldownSeconds}s cooldown until ${nextBatchAt} before next batch...`,
           );
+
           await new Promise((resolve) => setTimeout(resolve, cooldownMs));
+
           job.nextBatchAt = undefined;
+          this.databaseService.saveFulfillmentJob(job);
         }
       }
 
@@ -565,6 +598,7 @@ export class FulfillmentService {
       job.nextBatchAt = undefined;
       job.processedAt = new Date().toISOString();
       job.updatedAt = new Date().toISOString();
+      this.databaseService.saveFulfillmentJob(job);
       this.databaseService.saveFulfillmentJob(job);
 
       const allTxRefs = job.batchHistory.map((b) => b.txId).join(', ');
