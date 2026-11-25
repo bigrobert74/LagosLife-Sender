@@ -1,0 +1,24 @@
+services:
+  # ==========================================
+  # Lagos Life Platform API Backend
+  # ==========================================
+  - type: web
+    name: lagos-life-api
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm install && npm run prisma:generate && npm run build:api
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: LAGOS_LIFE_API_BASE_URL
+        value: https://lagoslife.eliysites.com
+      - key: LAGOS_LIFE_LIVE_SYNC
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGIN
+        value: "*"

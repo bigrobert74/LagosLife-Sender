@@ -14,6 +14,8 @@
     "build:web": "npm run build --workspace=apps/web",
     "build:admin": "npm run build --workspace=apps/admin",
     "build:api": "npm run build --workspace=apps/api",
+    "start": "node apps/api/dist/main",
+    "start:prod": "node apps/api/dist/main",
     "prisma:generate": "prisma generate --schema=apps/api/prisma/schema.prisma",
     "db:migrate": "npm run db:migrate --workspace=apps/api",
     "db:seed": "npm run db:seed --workspace=apps/api",
