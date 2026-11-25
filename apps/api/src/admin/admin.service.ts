@@ -6,6 +6,7 @@ import {
   Logger,
   Inject,
   forwardRef,
+  OnApplicationBootstrap,
 } from '@nestjs/common';
 import { OrdersService, InFlightOrder } from '../orders/orders.service';
 import { BankSettingsService, BankAccountSettings } from '../orders/bank-settings.service';
@@ -83,7 +84,7 @@ export interface StaffUser {
 }
 
 @Injectable()
-export class AdminService {
+export class AdminService implements OnApplicationBootstrap {
   private readonly logger = new Logger(AdminService.name);
 
   // In-Game Inventory Ledger State
@@ -211,12 +212,20 @@ export class AdminService {
     this.hydrateFromDatabase();
   }
 
+  onApplicationBootstrap() {
+    this.hydrateFromDatabase();
+  }
+
   private hydrateFromDatabase() {
     this.auditLogs = this.databaseService.getAuditLogs();
     this.inventoryLedger = this.databaseService.getLedger() as unknown as InventoryLedgerEntry[];
     this.staffUsers = this.databaseService.getStaffUsers();
     this.supportTickets = this.databaseService.getSupportTickets();
     this.coupons = this.databaseService.getCoupons();
+    const savedSystemSettings = this.databaseService.getKV<typeof this.systemSettings>('system_settings');
+    if (savedSystemSettings) {
+      this.systemSettings = { ...this.systemSettings, ...savedSystemSettings };
+    }
     const inv = this.databaseService.getInventoryState();
     if (inv?.recordedAvailableBalance) {
       this.recordedAvailableBalance = BigInt(inv.recordedAvailableBalance);
@@ -983,17 +992,20 @@ export class AdminService {
 
   async updateSystemSettings(body: Partial<typeof this.systemSettings>, adminUsername = 'lead_admin') {
     this.systemSettings = { ...this.systemSettings, ...body };
+    this.databaseService.setKV('system_settings', this.systemSettings);
     this.logAudit(adminUsername, 'UPDATE_SYSTEM_SETTINGS', 'SETTINGS', 'system-config', 'Updated general system settings');
     return this.systemSettings;
   }
 
   async getSystemHealth() {
+    const pgConnected = this.databaseService.isPostgresConnected();
     return {
       status: 'HEALTHY_ONLINE',
       uptimeSeconds: Math.floor(process.uptime()),
       memoryUsageMb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-      database: 'CONNECTED_POSTGRESQL',
-      redisQueue: 'CONNECTED_BULLMQ',
+      database: pgConnected ? 'CONNECTED_POSTGRESQL' : 'PERSISTENT_DISK_JSON',
+      persistenceMode: pgConnected ? 'POSTGRESQL_LIVE_SYNC' : 'LOCAL_DISK_JSON',
+      redisQueue: 'IN_MEMORY_BATCH_WORKER',
       timestamp: new Date().toISOString(),
       version: this.systemSettings.version,
     };

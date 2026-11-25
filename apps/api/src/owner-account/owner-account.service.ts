@@ -4,12 +4,14 @@ import {
   BadRequestException,
   NotFoundException,
   ServiceUnavailableException,
+  OnApplicationBootstrap,
 } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { CryptoService } from './crypto.service';
 import { GameService } from '../game/game.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { DatabaseService } from '../database/database.service';
 
 export interface OwnerAccountStatus {
   id: string;
@@ -58,7 +60,7 @@ export interface OwnerBalanceInfo {
 }
 
 @Injectable()
-export class OwnerAccountService {
+export class OwnerAccountService implements OnApplicationBootstrap {
   private readonly logger = new Logger(OwnerAccountService.name);
 
   // In-memory persistent state (synced with disk session & live Lagos Life server)
@@ -102,6 +104,7 @@ export class OwnerAccountService {
     private readonly cryptoService: CryptoService,
     private readonly gameService: GameService,
     private readonly prisma: PrismaService,
+    private readonly databaseService: DatabaseService,
   ) {
     // Auto-load persistent live session from disk (if an account was previously linked)
     this.loadSessionFromFile();
@@ -114,8 +117,17 @@ export class OwnerAccountService {
     }
   }
 
+  onApplicationBootstrap() {
+    this.loadSessionFromFile();
+    if (this.accountState.status === 'CONNECTED' && this.accountState.username) {
+      this.syncBalance().catch(() => {});
+    }
+  }
+
   private getSessionFilePaths(): string[] {
     return [
+      path.join(this.databaseService.getDataDirectory(), 'owner_account_session.json'),
+      path.resolve(process.cwd(), 'apps', 'api', 'data', 'owner_account_session.json'),
       path.resolve(process.cwd(), 'data', 'owner_account_session.json'),
       path.resolve(process.cwd(), 'owner_account_session.json'),
       path.resolve(process.cwd(), 'apps', 'api', 'owner_account_session.json'),
@@ -124,34 +136,43 @@ export class OwnerAccountService {
     ];
   }
 
+  private applySessionPayload(parsed: any): boolean {
+    if (!parsed || (parsed.status !== 'CONNECTED' && !parsed.username)) return false;
+    this.accountState.username = parsed.username || '';
+    this.accountState.status = parsed.username ? parsed.status || 'CONNECTED' : 'NOT_CONNECTED';
+    this.accountState.accountIdentifier = parsed.accountIdentifier || 'Primary Character Vault';
+    this.accountState.description = parsed.description || 'Connected Live Character Vault';
+    if (parsed.savedCash) this.accountState.savedCash = BigInt(parsed.savedCash);
+    if (parsed.netWorth) this.accountState.netWorth = BigInt(parsed.netWorth);
+    if (parsed.pin) {
+      this.accountState.encryptedPin = this.cryptoService.encrypt(parsed.pin);
+      this.gameService.setOwnerPin(parsed.pin);
+    }
+    if (parsed.cookies) {
+      this.gameService.setCookiesMap(parsed.cookies);
+    }
+    if (this.accountState.username) {
+      this.gameService.setOwnerUsername(this.accountState.username);
+      this.logger.log(`Active character session for @${this.accountState.username} restored.`);
+    }
+    this.accountState.lastConnectedAt = parsed.lastConnectedAt || new Date().toISOString();
+    this.accountState.lastSyncedAt = parsed.lastSyncedAt || new Date().toISOString();
+    return true;
+  }
+
   private loadSessionFromFile() {
+    const kvSession = this.databaseService.getKV<any>('owner_account_session');
+    if (this.applySessionPayload(kvSession)) {
+      return;
+    }
+
     try {
       for (const sp of this.getSessionFilePaths()) {
         if (fs.existsSync(sp)) {
           const raw = fs.readFileSync(sp, 'utf-8');
           const parsed = JSON.parse(raw);
-          if (parsed && (parsed.status === 'CONNECTED' || parsed.username)) {
-            this.accountState.username = parsed.username || '';
-            this.accountState.status = parsed.username ? (parsed.status || 'CONNECTED') : 'NOT_CONNECTED';
-            this.accountState.accountIdentifier = parsed.accountIdentifier || 'Primary Character Vault';
-            this.accountState.description = parsed.description || 'Connected Live Character Vault';
-            if (parsed.savedCash) this.accountState.savedCash = BigInt(parsed.savedCash);
-            if (parsed.netWorth) this.accountState.netWorth = BigInt(parsed.netWorth);
-            if (parsed.pin) {
-              this.accountState.encryptedPin = this.cryptoService.encrypt(parsed.pin);
-              this.gameService.setOwnerPin(parsed.pin);
-            }
-            if (parsed.cookies) {
-              this.gameService.setCookiesMap(parsed.cookies);
-            }
-            if (this.accountState.username) {
-              this.gameService.setOwnerUsername(this.accountState.username);
-            }
-            this.accountState.lastConnectedAt = parsed.lastConnectedAt || new Date().toISOString();
-            this.accountState.lastSyncedAt = parsed.lastSyncedAt || new Date().toISOString();
-            if (this.accountState.username) {
-              this.logger.log(`Active character session for @${this.accountState.username} restored from disk.`);
-            }
+          if (this.applySessionPayload(parsed)) {
+            this.databaseService.setKV('owner_account_session', parsed);
             return;
           }
         }
@@ -179,16 +200,21 @@ export class OwnerAccountService {
         lastSyncedAt: this.accountState.lastSyncedAt,
       };
 
-      for (const sp of this.getSessionFilePaths().slice(0, 2)) {
-        fs.writeFileSync(sp, JSON.stringify(sessionData, null, 2), 'utf-8');
+      this.databaseService.setKV('owner_account_session', sessionData);
+
+      for (const sp of this.getSessionFilePaths().slice(0, 3)) {
+        try {
+          fs.writeFileSync(sp, JSON.stringify(sessionData, null, 2), 'utf-8');
+        } catch (_) {}
       }
-      this.logger.log(`Owner account @${this.accountState.username} session persisted to disk.`);
+      this.logger.log(`Owner account @${this.accountState.username} session persisted to database & disk.`);
     } catch (err: any) {
       this.logger.warn(`Could not save owner_account_session.json: ${err.message}`);
     }
   }
 
   private deleteSessionFile() {
+    this.databaseService.deleteKV('owner_account_session');
     for (const sp of this.getSessionFilePaths()) {
       try {
         if (fs.existsSync(sp)) {

@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
+import { DatabaseService } from '../database/database.service';
 
 export interface PhoneNotificationSettings {
   enabled: boolean;
@@ -13,13 +14,8 @@ export interface PhoneNotificationSettings {
 }
 
 @Injectable()
-export class PhoneNotificationsService {
+export class PhoneNotificationsService implements OnApplicationBootstrap {
   private readonly logger = new Logger(PhoneNotificationsService.name);
-  private readonly configPaths = [
-    path.resolve(process.cwd(), 'data', 'phone_notification_settings.json'),
-    path.resolve(process.cwd(), 'phone_notification_settings.json'),
-    path.resolve(process.cwd(), 'apps', 'api', 'phone_notification_settings.json'),
-  ];
 
   private settings: PhoneNotificationSettings = {
     enabled: true,
@@ -29,19 +25,40 @@ export class PhoneNotificationsService {
     notifyOnOrderDelivered: true,
   };
 
-  constructor() {
-    this.loadFromFile();
+  constructor(private readonly databaseService: DatabaseService) {
+    this.hydrateSettings();
   }
 
-  private loadFromFile() {
+  onApplicationBootstrap() {
+    this.hydrateSettings();
+  }
+
+  private getConfigPaths(): string[] {
+    return [
+      path.join(this.databaseService.getDataDirectory(), 'phone_notification_settings.json'),
+      path.resolve(process.cwd(), 'apps', 'api', 'data', 'phone_notification_settings.json'),
+      path.resolve(process.cwd(), 'data', 'phone_notification_settings.json'),
+      path.resolve(process.cwd(), 'phone_notification_settings.json'),
+      path.resolve(process.cwd(), 'apps', 'api', 'phone_notification_settings.json'),
+    ];
+  }
+
+  private hydrateSettings() {
+    const fromKv = this.databaseService.getKV<PhoneNotificationSettings>('phone_notification_settings');
+    if (fromKv && typeof fromKv.enabled === 'boolean') {
+      this.settings = { ...this.settings, ...fromKv };
+      this.logger.log(`Phone notifications configured for topic: ${this.settings.ntfyTopic}`);
+      return;
+    }
+
     try {
-      for (const cp of this.configPaths) {
+      for (const cp of this.getConfigPaths()) {
         if (fs.existsSync(cp)) {
-          const raw = fs.readFileSync(cp, 'utf-8');
-          const parsed = JSON.parse(raw);
+          const parsed = JSON.parse(fs.readFileSync(cp, 'utf-8'));
           if (parsed && typeof parsed.enabled === 'boolean') {
             this.settings = { ...this.settings, ...parsed };
-            this.logger.log(`Phone notifications configured for topic: ${this.settings.ntfyTopic}`);
+            this.databaseService.setKV('phone_notification_settings', this.settings);
+            this.logger.log(`Phone notifications configured from disk for topic: ${this.settings.ntfyTopic}`);
             return;
           }
         }
@@ -51,18 +68,8 @@ export class PhoneNotificationsService {
     }
   }
 
-  private saveToFile() {
-    try {
-      for (const cp of this.configPaths) {
-        try {
-          const dir = path.dirname(cp);
-          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-          fs.writeFileSync(cp, JSON.stringify(this.settings, null, 2), 'utf-8');
-        } catch (_) {}
-      }
-    } catch (err: any) {
-      this.logger.warn(`Could not save phone_notification_settings.json: ${err.message}`);
-    }
+  private persistSettings() {
+    this.databaseService.setKV('phone_notification_settings', this.settings);
   }
 
   getSettings() {
@@ -78,7 +85,7 @@ export class PhoneNotificationsService {
 
   updateSettings(body: Partial<PhoneNotificationSettings>) {
     this.settings = { ...this.settings, ...body };
-    this.saveToFile();
+    this.persistSettings();
     return this.getSettings();
   }
 
@@ -94,8 +101,6 @@ export class PhoneNotificationsService {
     if (!this.settings.enabled) return { sent: false, reason: 'DISABLED' };
 
     const topic = this.settings.ntfyTopic || 'lagoslife_orders_hq';
-
-    // Map priority string to ntfy priority level (1=min, 3=default, 4=high, 5=urgent)
     const priorityMap: Record<string, number> = {
       min: 1,
       low: 2,
@@ -107,7 +112,6 @@ export class PhoneNotificationsService {
     const tagList = options?.tags ? options.tags.split(',').map((t) => t.trim()) : ['moneybag', 'bell'];
 
     try {
-      // Dispatch via JSON body so UTF-8 characters, emojis (💰, 🚨), and Naira symbol (₦) work flawlessly
       const payload: Record<string, any> = {
         topic,
         title,
@@ -131,7 +135,6 @@ export class PhoneNotificationsService {
         this.logger.log(`[PHONE PUSH] Dispatched push to phone topic '${topic}': ${title}`);
       }
 
-      // Also forward to custom webhook if set
       if (this.settings.customWebhookUrl) {
         fetch(this.settings.customWebhookUrl, {
           method: 'POST',
@@ -149,16 +152,17 @@ export class PhoneNotificationsService {
 
   async sendTestPush() {
     this.settings.lastTestSentAt = new Date().toISOString();
-    this.saveToFile();
+    this.persistSettings();
 
     const topic = this.settings.ntfyTopic || 'lagoslife_orders_hq';
+    const adminUrl = process.env.ADMIN_DASHBOARD_URL || 'https://lagos-life-admin.pages.dev';
     return this.sendPush(
       '🔔 Lagos Life Phone Alerts Connected!',
       `Test alert confirmed on topic '${topic}'. You will receive immediate push notifications whenever a player buys in-game cash!`,
       {
         priority: 'urgent',
         tags: 'tada,iphone,android,moneybag',
-        click: 'http://localhost:5174',
+        click: adminUrl,
       },
     );
   }

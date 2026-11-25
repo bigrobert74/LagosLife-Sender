@@ -389,3 +389,11 @@ model IntegrationLog {
   @@index([action, createdAt])
   @@map("integration_logs")
 }
+
+model PersistentTableStore {
+  tableName String   @id @map("table_name")
+  payload   String   @db.Text
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("persistent_table_store")
+}

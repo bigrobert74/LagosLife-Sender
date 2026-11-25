@@ -6,9 +6,12 @@ import {
   ForbiddenException,
   HttpException,
   HttpStatus,
+  OnApplicationBootstrap,
+  Optional,
 } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
+import { DatabaseService } from '../database/database.service';
 
 export interface LagosLifePlayer {
   id: string;
@@ -105,7 +108,7 @@ const FALLBACK_PLAYERS: LagosLifePlayer[] = [
 ];
 
 @Injectable()
-export class GameService {
+export class GameService implements OnApplicationBootstrap {
   private readonly logger = new Logger(GameService.name);
   private readonly baseUrl =
     process.env.LAGOS_LIFE_API_BASE_URL || 'https://lagoslife.eliysites.com';
@@ -164,13 +167,14 @@ export class GameService {
 
   clearCookies() {
     this.cookies.clear();
+    this.databaseService?.deleteKV('game_cookies');
     const cookiePath = path.resolve(process.cwd(), 'game_cookies.json');
     try {
       if (fs.existsSync(cookiePath)) fs.unlinkSync(cookiePath);
     } catch (e) {}
   }
 
-  constructor() {
+  constructor(@Optional() private readonly databaseService?: DatabaseService) {
     this.loadDeviceCookiesFromFile();
     // Pre-seed known live players cache
     for (const p of FALLBACK_PLAYERS) {
@@ -179,10 +183,38 @@ export class GameService {
     }
   }
 
+  onApplicationBootstrap() {
+    this.loadDeviceCookiesFromFile();
+  }
+
   private loadDeviceCookiesFromFile() {
-    // 1. Check persistent owner_account_session.json
+    // 0. Check DatabaseService KV first (Postgres / unified dataDir)
+    const kvSession = this.databaseService?.getKV<any>('owner_account_session');
+    if (kvSession) {
+      if (kvSession.cookies) {
+        for (const [k, v] of Object.entries(kvSession.cookies)) {
+          if (v) this.cookies.set(k, v as string);
+        }
+      }
+      if (kvSession.username) this.ownerUsername = kvSession.username;
+      if (kvSession.savedCash) this.savedCash = BigInt(kvSession.savedCash);
+      if (kvSession.netWorth) this.netWorth = BigInt(kvSession.netWorth);
+    }
+
+    const kvCookies = this.databaseService?.getKV<Record<string, string>>('game_cookies');
+    if (kvCookies) {
+      for (const [k, v] of Object.entries(kvCookies)) {
+        if (v) this.cookies.set(k, v);
+      }
+    }
+
+    // 1. Check persistent owner_account_session.json on disk
     try {
       const sessionPaths = [
+        ...(this.databaseService
+          ? [path.join(this.databaseService.getDataDirectory(), 'owner_account_session.json')]
+          : []),
+        path.resolve(process.cwd(), 'apps', 'api', 'data', 'owner_account_session.json'),
         path.resolve(process.cwd(), 'owner_account_session.json'),
         path.resolve(process.cwd(), 'apps', 'api', 'owner_account_session.json'),
         path.resolve(__dirname, '..', '..', 'owner_account_session.json'),
@@ -254,6 +286,7 @@ export class GameService {
       for (const [k, v] of this.cookies.entries()) {
         obj[k] = v;
       }
+      this.databaseService?.setKV('game_cookies', obj);
       const p1 = path.resolve(process.cwd(), 'game_cookies.json');
       fs.writeFileSync(p1, JSON.stringify(obj, null, 2), 'utf-8');
     } catch (e: any) {

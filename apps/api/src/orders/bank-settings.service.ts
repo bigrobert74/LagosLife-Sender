@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
+import { DatabaseService } from '../database/database.service';
 
 export interface BankAccountSettings {
   bankName: string;
@@ -15,13 +16,8 @@ export interface BankAccountSettings {
 }
 
 @Injectable()
-export class BankSettingsService {
+export class BankSettingsService implements OnApplicationBootstrap {
   private readonly logger = new Logger(BankSettingsService.name);
-  private readonly configPaths = [
-    path.resolve(process.cwd(), 'data', 'bank_settings.json'),
-    path.resolve(process.cwd(), 'bank_settings.json'),
-    path.resolve(process.cwd(), 'apps', 'api', 'bank_settings.json'),
-  ];
 
   private settings: BankAccountSettings = {
     bankName: 'Moniepoint Microfinance Bank',
@@ -35,19 +31,40 @@ export class BankSettingsService {
     lastUpdatedAt: new Date().toISOString(),
   };
 
-  constructor() {
-    this.loadFromFile();
+  constructor(private readonly databaseService: DatabaseService) {
+    this.hydrateSettings();
   }
 
-  private loadFromFile() {
+  onApplicationBootstrap() {
+    this.hydrateSettings();
+  }
+
+  private getConfigPaths(): string[] {
+    return [
+      path.join(this.databaseService.getDataDirectory(), 'bank_settings.json'),
+      path.resolve(process.cwd(), 'apps', 'api', 'data', 'bank_settings.json'),
+      path.resolve(process.cwd(), 'data', 'bank_settings.json'),
+      path.resolve(process.cwd(), 'bank_settings.json'),
+      path.resolve(process.cwd(), 'apps', 'api', 'bank_settings.json'),
+    ];
+  }
+
+  private hydrateSettings() {
+    const fromKv = this.databaseService.getKV<BankAccountSettings>('bank_settings');
+    if (fromKv && fromKv.bankName && fromKv.accountNumber) {
+      this.settings = { ...this.settings, ...fromKv };
+      this.logger.log(`Loaded persisted live bank account: ${this.settings.bankName} - ${this.settings.accountNumber}`);
+      return;
+    }
+
     try {
-      for (const cp of this.configPaths) {
+      for (const cp of this.getConfigPaths()) {
         if (fs.existsSync(cp)) {
-          const raw = fs.readFileSync(cp, 'utf-8');
-          const parsed = JSON.parse(raw);
+          const parsed = JSON.parse(fs.readFileSync(cp, 'utf-8'));
           if (parsed && parsed.bankName && parsed.accountNumber) {
             this.settings = { ...this.settings, ...parsed };
-            this.logger.log(`Loaded persisted live bank account: ${this.settings.bankName} - ${this.settings.accountNumber}`);
+            this.databaseService.setKV('bank_settings', this.settings);
+            this.logger.log(`Loaded persisted live bank account from disk: ${this.settings.bankName} - ${this.settings.accountNumber}`);
             return;
           }
         }
@@ -57,18 +74,8 @@ export class BankSettingsService {
     }
   }
 
-  private saveToFile() {
-    try {
-      for (const cp of this.configPaths) {
-        try {
-          const dir = path.dirname(cp);
-          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-          fs.writeFileSync(cp, JSON.stringify(this.settings, null, 2), 'utf-8');
-        } catch (_) {}
-      }
-    } catch (err: any) {
-      this.logger.warn(`Could not save bank_settings.json: ${err.message}`);
-    }
+  private persistSettings() {
+    this.databaseService.setKV('bank_settings', this.settings);
   }
 
   getSettings(): BankAccountSettings {
@@ -82,7 +89,7 @@ export class BankSettingsService {
       lastUpdatedBy: updatedBy,
       lastUpdatedAt: new Date().toISOString(),
     };
-    this.saveToFile();
+    this.persistSettings();
     this.logger.log(`Live bank settings updated: ${this.settings.bankName} (${this.settings.accountNumber}) by ${updatedBy}`);
     return this.getSettings();
   }

@@ -50,8 +50,8 @@ async function run() {
   }
 
   // 1. Reset HEAD to latest commit on origin/main
-  console.log('1. Setting HEAD to 82d19f0c6195bffa810ca9954c816cbf90d4b7a7...');
-  const originMainSha = '82d19f0c6195bffa810ca9954c816cbf90d4b7a7';
+  console.log('1. Setting HEAD to 1030bfb1420b081cd81b1fc18ec78b77041f566e...');
+  const originMainSha = '1030bfb1420b081cd81b1fc18ec78b77041f566e';
   fs.writeFileSync(path.join(dir, '.git', 'refs', 'heads', 'main'), originMainSha + '\n', 'utf8');
 
   // 2. Remove sensitive or temp scripts from git index
@@ -74,7 +74,7 @@ async function run() {
 
   // 4. Create new commit
   console.log('3. Creating commit...');
-  const commitMsg = 'fix: multi-batch transfer engine (100B per 70s cooldown), safe live balance access, and live countdown ticker on tracker';
+  const commitMsg = 'feat: configure Cloudflare Pages live API routing, Render PostgreSQL zero-data-loss persistence, and cross-origin CORS';
   const sha = await git.commit({
     fs,
     dir,

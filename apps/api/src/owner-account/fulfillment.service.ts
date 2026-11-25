@@ -3,6 +3,7 @@ import {
   Logger,
   BadRequestException,
   NotFoundException,
+  OnApplicationBootstrap,
 } from '@nestjs/common';
 import { OwnerAccountService } from './owner-account.service';
 import { GameService } from '../game/game.service';
@@ -63,7 +64,7 @@ export interface FulfillmentJobRecord {
 }
 
 @Injectable()
-export class FulfillmentService {
+export class FulfillmentService implements OnApplicationBootstrap {
   private readonly logger = new Logger(FulfillmentService.name);
 
   private settings: FulfillmentSettingsDto = {
@@ -104,6 +105,10 @@ export class FulfillmentService {
     private readonly prisma: PrismaService,
     private readonly databaseService: DatabaseService,
   ) {
+    this.hydrateFromDatabase();
+  }
+
+  onApplicationBootstrap() {
     this.hydrateFromDatabase();
   }
 

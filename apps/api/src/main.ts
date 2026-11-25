@@ -7,11 +7,12 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Enable CORS for frontend web application
+  // Enable CORS for frontend web applications (Cloudflare Pages, custom domains, and local dev)
   app.enableCors({
-    origin: '*',
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+    origin: (origin, callback) => callback(null, true),
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
+    allowedHeaders: 'Content-Type,Authorization,Accept,Origin,X-Requested-With',
   });
 
   // Global validation pipe for type-safety and DTOs

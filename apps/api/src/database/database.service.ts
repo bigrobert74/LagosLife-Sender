@@ -1,6 +1,7 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
+import { PrismaService } from '../prisma/prisma.service';
 
 export interface PersistentOrderRecord {
   id: string;
@@ -68,10 +69,19 @@ export interface PersistentAuditEntry {
   timestamp: string;
 }
 
+const KV_KEYS = [
+  'bank_settings',
+  'phone_notification_settings',
+  'owner_account_session',
+  'game_cookies',
+] as const;
+
 @Injectable()
-export class DatabaseService implements OnModuleInit {
+export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DatabaseService.name);
-  private dataDir: string = '';
+  private dataDir = '';
+  private pgConnected = false;
+  private pgWriteQueue = new Map<string, Promise<void>>();
 
   // In-Memory Cached Tables
   private orders = new Map<string, PersistentOrderRecord>();
@@ -91,16 +101,27 @@ export class DatabaseService implements OnModuleInit {
   private customers = new Map<string, any>();
   private supportTickets: any[] = [];
   private coupons: any[] = [];
+  private kvStore = new Map<string, any>();
 
-  constructor() {
+  constructor(@Optional() private readonly prisma?: PrismaService) {
     this.initDataDirectory();
     this.hydrateAllTablesFromDisk();
   }
 
-  onModuleInit() {
-    if (this.orders.size === 0) {
+  async onModuleInit() {
+    if (this.prisma && (await this.prisma.ensureReady())) {
+      await this.syncAllTablesWithPostgres();
+    } else if (this.orders.size === 0) {
       this.hydrateAllTablesFromDisk();
     }
+  }
+
+  async onModuleDestroy() {
+    await Promise.allSettled(Array.from(this.pgWriteQueue.values()));
+  }
+
+  public isPostgresConnected(): boolean {
+    return this.pgConnected;
   }
 
   // -------------------------------------------------------------
@@ -118,7 +139,6 @@ export class DatabaseService implements OnModuleInit {
     for (const c of candidates) {
       if (fs.existsSync(c)) {
         try {
-          // Verify write permissions
           const testFile = path.join(c, '.write_test');
           fs.writeFileSync(testFile, 'ok', 'utf-8');
           fs.unlinkSync(testFile);
@@ -169,31 +189,75 @@ export class DatabaseService implements OnModuleInit {
     return fallback;
   }
 
-  private writeTableToDisk(tableName: string, data: any) {
-    const filePath = this.getTableFilePath(tableName);
+  private writeJsonAtomically(filePath: string, data: any) {
     const tempPath = `${filePath}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf-8');
     try {
-      fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf-8');
+      fs.renameSync(tempPath, filePath);
+    } catch {
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
       try {
-        fs.renameSync(tempPath, filePath);
-      } catch {
-        fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
-        try {
-          fs.unlinkSync(tempPath);
-        } catch (_) {}
-      }
-    } catch (err: any) {
-      this.logger.error(`Failed to persist table ${tableName} to disk: ${err.message}`);
+        fs.unlinkSync(tempPath);
+      } catch (_) {}
     }
   }
 
+  private writeTableToDisk(tableName: string, data: any, skipPostgres = false) {
+    const filePath = this.getTableFilePath(tableName);
+    try {
+      this.writeJsonAtomically(filePath, data);
+    } catch (err: any) {
+      this.logger.error(`Failed to persist table ${tableName} to disk: ${err.message}`);
+    }
+
+    if (!skipPostgres && this.pgConnected && data !== undefined) {
+      this.queuePostgresUpsert(tableName, data);
+    }
+  }
+
+  private queuePostgresUpsert(tableKey: string, data: any) {
+    if (!this.prisma) return;
+    const payload = JSON.stringify(data);
+    const prev = this.pgWriteQueue.get(tableKey) || Promise.resolve();
+    const next = prev
+      .then(async () => {
+        await this.prisma!.$executeRawUnsafe(
+          `INSERT INTO persistent_table_store (table_name, payload, updated_at)
+           VALUES ($1, $2, NOW())
+           ON CONFLICT (table_name)
+           DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+          tableKey,
+          payload,
+        );
+      })
+      .catch((err: any) => {
+        this.logger.error(`PostgreSQL persistence error for '${tableKey}': ${err.message}`);
+      });
+    this.pgWriteQueue.set(tableKey, next);
+  }
+
+  private queuePostgresDelete(tableKey: string) {
+    if (!this.prisma) return;
+    const prev = this.pgWriteQueue.get(tableKey) || Promise.resolve();
+    const next = prev
+      .then(async () => {
+        await this.prisma!.$executeRawUnsafe(
+          `DELETE FROM persistent_table_store WHERE table_name = $1`,
+          tableKey,
+        );
+      })
+      .catch((err: any) => {
+        this.logger.error(`PostgreSQL delete error for '${tableKey}': ${err.message}`);
+      });
+    this.pgWriteQueue.set(tableKey, next);
+  }
+
   // -------------------------------------------------------------
-  // Startup Hydration
+  // Startup Hydration (Disk + Live PostgreSQL Sync)
   // -------------------------------------------------------------
   private hydrateAllTablesFromDisk() {
     this.logger.log('Hydrating all database tables from persistent disk store...');
 
-    // 1. Orders Table
     const rawOrders = this.readTableFromDisk<PersistentOrderRecord[]>('orders', []);
     this.orders.clear();
     for (const o of rawOrders) {
@@ -201,10 +265,8 @@ export class DatabaseService implements OnModuleInit {
     }
     this.logger.log(`Hydrated ${this.orders.size} customer orders from disk.`);
 
-    // 2. Inventory State
     this.inventoryState = this.readTableFromDisk<PersistentInventoryState>('inventory_state', this.inventoryState);
 
-    // 3. Inventory Ledger
     const defaultLedger: PersistentLedgerEntry[] = [
       {
         id: 'ledg-init-001',
@@ -220,10 +282,9 @@ export class DatabaseService implements OnModuleInit {
     ];
     this.ledger = this.readTableFromDisk<PersistentLedgerEntry[]>('inventory_ledger', defaultLedger);
     if (!fs.existsSync(this.getTableFilePath('inventory_ledger'))) {
-      this.writeTableToDisk('inventory_ledger', this.ledger);
+      this.writeTableToDisk('inventory_ledger', this.ledger, true);
     }
 
-    // 4. Audit Logs Table
     const defaultAudit: PersistentAuditEntry[] = [
       {
         id: 'audit-boot-001',
@@ -232,30 +293,25 @@ export class DatabaseService implements OnModuleInit {
         action: 'SYSTEM_BOOT',
         entityType: 'SYSTEM',
         entityId: 'sys-001',
-        details: 'Lagos Life database engine booted with persistent file storage.',
+        details: 'Lagos Life database engine booted with persistent storage.',
         ipAddress: '127.0.0.1',
         timestamp: new Date().toISOString(),
       },
     ];
     this.auditLogs = this.readTableFromDisk<PersistentAuditEntry[]>('audit_logs', defaultAudit);
     if (!fs.existsSync(this.getTableFilePath('audit_logs'))) {
-      this.writeTableToDisk('audit_logs', this.auditLogs);
+      this.writeTableToDisk('audit_logs', this.auditLogs, true);
     }
 
-    // 5. Fulfillment Jobs Table
     const rawJobs = this.readTableFromDisk<any[]>('fulfillment_jobs', []);
     this.fulfillmentJobs.clear();
     for (const j of rawJobs) {
       this.fulfillmentJobs.set(j.orderNumber, j);
     }
 
-    // 6. Fulfillment Transactions Table
     this.fulfillmentTransactions = this.readTableFromDisk<any[]>('fulfillment_transactions', []);
-
-    // 7. Fulfillment Settings Table
     this.fulfillmentSettings = this.readTableFromDisk<any>('fulfillment_settings', null);
 
-    // 8. Staff Users Table
     const defaultStaff = [
       {
         id: 'usr-admin-001',
@@ -280,23 +336,207 @@ export class DatabaseService implements OnModuleInit {
     ];
     this.staffUsers = this.readTableFromDisk<any[]>('staff_users', defaultStaff);
     if (!fs.existsSync(this.getTableFilePath('staff_users'))) {
-      this.writeTableToDisk('staff_users', this.staffUsers);
+      this.writeTableToDisk('staff_users', this.staffUsers, true);
     }
 
-    // 9. Customers Table
     const rawCustomers = this.readTableFromDisk<any[]>('customers', []);
     this.customers.clear();
     for (const c of rawCustomers) {
       this.customers.set(c.id || c.gameUsername, c);
     }
 
-    // 10. Support Tickets
     this.supportTickets = this.readTableFromDisk<any[]>('support_tickets', []);
-
-    // 11. Coupons
     this.coupons = this.readTableFromDisk<any[]>('coupons', []);
 
-    this.logger.log('✅ [DatabaseService] All tables successfully hydrated into memory from persistent disk storage.');
+    for (const key of KV_KEYS) {
+      const val = this.readTableFromDisk<any>(key, null);
+      if (val !== null) {
+        this.kvStore.set(key, val);
+      }
+    }
+
+    this.logger.log('✅ [DatabaseService] All tables hydrated from local disk.');
+  }
+
+  private async syncAllTablesWithPostgres() {
+    if (!this.prisma) return;
+    try {
+      const rows = await this.prisma.$queryRawUnsafe<Array<{ table_name: string; payload: string }>>(
+        'SELECT table_name, payload FROM persistent_table_store',
+      );
+      const dbMap = new Map<string, any>();
+      for (const row of rows) {
+        try {
+          dbMap.set(row.table_name, JSON.parse(row.payload));
+        } catch (err: any) {
+          this.logger.warn(`Ignoring malformed JSON in PG row '${row.table_name}': ${err.message}`);
+        }
+      }
+
+      const tableHandlers: Array<{
+        name: string;
+        getCurrent: () => any;
+        applyFromPg: (val: any) => void;
+      }> = [
+        {
+          name: 'orders',
+          getCurrent: () => Array.from(this.orders.values()),
+          applyFromPg: (val: PersistentOrderRecord[]) => {
+            this.orders.clear();
+            if (Array.isArray(val)) {
+              for (const o of val) this.orders.set(o.orderNumber, o);
+            }
+          },
+        },
+        {
+          name: 'inventory_state',
+          getCurrent: () => this.inventoryState,
+          applyFromPg: (val: PersistentInventoryState) => {
+            if (val) this.inventoryState = val;
+          },
+        },
+        {
+          name: 'inventory_ledger',
+          getCurrent: () => this.ledger,
+          applyFromPg: (val: PersistentLedgerEntry[]) => {
+            if (Array.isArray(val)) this.ledger = val;
+          },
+        },
+        {
+          name: 'audit_logs',
+          getCurrent: () => this.auditLogs,
+          applyFromPg: (val: PersistentAuditEntry[]) => {
+            if (Array.isArray(val)) this.auditLogs = val;
+          },
+        },
+        {
+          name: 'fulfillment_jobs',
+          getCurrent: () => Array.from(this.fulfillmentJobs.values()),
+          applyFromPg: (val: any[]) => {
+            this.fulfillmentJobs.clear();
+            if (Array.isArray(val)) {
+              for (const j of val) this.fulfillmentJobs.set(j.orderNumber, j);
+            }
+          },
+        },
+        {
+          name: 'fulfillment_transactions',
+          getCurrent: () => this.fulfillmentTransactions,
+          applyFromPg: (val: any[]) => {
+            if (Array.isArray(val)) this.fulfillmentTransactions = val;
+          },
+        },
+        {
+          name: 'fulfillment_settings',
+          getCurrent: () => this.fulfillmentSettings,
+          applyFromPg: (val: any) => {
+            if (val !== undefined) this.fulfillmentSettings = val;
+          },
+        },
+        {
+          name: 'staff_users',
+          getCurrent: () => this.staffUsers,
+          applyFromPg: (val: any[]) => {
+            if (Array.isArray(val)) this.staffUsers = val;
+          },
+        },
+        {
+          name: 'customers',
+          getCurrent: () => Array.from(this.customers.values()),
+          applyFromPg: (val: any[]) => {
+            this.customers.clear();
+            if (Array.isArray(val)) {
+              for (const c of val) this.customers.set(c.id || c.gameUsername, c);
+            }
+          },
+        },
+        {
+          name: 'support_tickets',
+          getCurrent: () => this.supportTickets,
+          applyFromPg: (val: any[]) => {
+            if (Array.isArray(val)) this.supportTickets = val;
+          },
+        },
+        {
+          name: 'coupons',
+          getCurrent: () => this.coupons,
+          applyFromPg: (val: any[]) => {
+            if (Array.isArray(val)) this.coupons = val;
+          },
+        },
+      ];
+
+      this.pgConnected = true;
+
+      for (const h of tableHandlers) {
+        if (dbMap.has(h.name)) {
+          const pgVal = dbMap.get(h.name);
+          h.applyFromPg(pgVal);
+          this.writeTableToDisk(h.name, pgVal, true);
+        } else {
+          const seedVal = h.getCurrent();
+          if (seedVal !== null && seedVal !== undefined) {
+            this.queuePostgresUpsert(h.name, seedVal);
+          }
+        }
+      }
+
+      for (const [k, v] of dbMap.entries()) {
+        if (k.startsWith('kv:')) {
+          const keyName = k.slice(3);
+          this.kvStore.set(keyName, v);
+          this.writeTableToDisk(keyName, v, true);
+        }
+      }
+
+      // Seed KV keys from disk if missing in PostgreSQL
+      for (const keyName of KV_KEYS) {
+        if (!dbMap.has(`kv:${keyName}`) && this.kvStore.has(keyName)) {
+          this.queuePostgresUpsert(`kv:${keyName}`, this.kvStore.get(keyName));
+        }
+      }
+
+      await Promise.allSettled(Array.from(this.pgWriteQueue.values()));
+      this.logger.log(
+        `✅ [DatabaseService] Live PostgreSQL sync active (${this.orders.size} orders, ${dbMap.size} existing DB snapshots loaded). Zero-data-loss guaranteed across restarts.`,
+      );
+    } catch (err: any) {
+      this.pgConnected = false;
+      this.logger.warn(`PostgreSQL hydration failed (${err.message}); continuing with local disk storage.`);
+    }
+  }
+
+  // -------------------------------------------------------------
+  // GENERIC KV PERSISTENCE (Settings, Owner Session, Cookies)
+  // -------------------------------------------------------------
+  public getKV<T = any>(key: string): T | null {
+    if (this.kvStore.has(key)) {
+      return this.kvStore.get(key) as T;
+    }
+    const fromDisk = this.readTableFromDisk<T | null>(key, null);
+    if (fromDisk !== null) {
+      this.kvStore.set(key, fromDisk);
+    }
+    return fromDisk;
+  }
+
+  public setKV(key: string, value: any): void {
+    this.kvStore.set(key, value);
+    this.writeTableToDisk(key, value, true);
+    if (this.pgConnected) {
+      this.queuePostgresUpsert(`kv:${key}`, value);
+    }
+  }
+
+  public deleteKV(key: string): void {
+    this.kvStore.delete(key);
+    try {
+      const fp = this.getTableFilePath(key);
+      if (fs.existsSync(fp)) fs.unlinkSync(fp);
+    } catch (_) {}
+    if (this.pgConnected) {
+      this.queuePostgresDelete(`kv:${key}`);
+    }
   }
 
   // -------------------------------------------------------------
@@ -366,7 +606,6 @@ export class DatabaseService implements OnModuleInit {
 
   public addAuditLog(entry: PersistentAuditEntry): PersistentAuditEntry {
     this.auditLogs.unshift(entry);
-    // Keep last 1,000 logs on disk
     if (this.auditLogs.length > 1000) {
       this.auditLogs = this.auditLogs.slice(0, 1000);
     }

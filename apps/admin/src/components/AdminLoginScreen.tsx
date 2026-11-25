@@ -149,7 +149,7 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({ onLoginSucce
         </div>
         <div className="flex items-center space-x-3 text-[11px]">
           <span className="bg-surface-border/60 px-2 py-0.5 rounded text-primary border border-primary/20">
-            PORT: 5174 (ISOLATED)
+            CLOUD ENCLAVE (ISOLATED)
           </span>
           <span className="text-slate-400 hidden md:inline">TLS 1.3 • AES-GCM-256</span>
         </div>

@@ -1,0 +1,11 @@
+{
+  "bankName": "OPAY",
+  "accountName": "KELVIN",
+  "accountNumber": "9036627043",
+  "paymentDeadlineMinutes": 60,
+  "instructions": "Transfer the exact order amount from any commercial bank app. Upload screenshot or enter sender name.",
+  "supportMessage": "Payments are verified within 5-15 minutes by an administrator.",
+  "isActive": true,
+  "lastUpdatedBy": "lead_admin",
+  "lastUpdatedAt": "2026-11-22T21:28:52.236Z"
+}

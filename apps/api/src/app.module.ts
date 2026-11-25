@@ -9,8 +9,8 @@ import { OwnerAccountModule } from './owner-account/owner-account.module';
 
 @Module({
   imports: [
-    DatabaseModule,
     PrismaModule,
+    DatabaseModule,
     PackagesModule,
     OrdersModule,
     AdminModule,
