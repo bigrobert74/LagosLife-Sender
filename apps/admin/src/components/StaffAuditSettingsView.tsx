@@ -58,6 +58,51 @@ export const StaffAuditSettingsView: React.FC<StaffAuditSettingsViewProps> = ({
   const [glStatus, setGlStatus] = useState<any | null>(null);
   const [glLoading, setGlLoading] = useState(false);
 
+  // Database Reset State
+  const [clearPassword, setClearPassword] = useState('');
+  const [clearLoading, setClearLoading] = useState(false);
+  const [clearFeedback, setClearFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  const handleClearDatabase = async () => {
+    if (!clearPassword.trim()) {
+      setClearFeedback({ text: 'Enter your administrator password to confirm clearing database records.', type: 'error' });
+      return;
+    }
+    if (!window.confirm('Clear all orders, customers, fulfillment jobs, and audit logs? (Bank settings, owner vault, and staff logins will be preserved.)')) {
+      return;
+    }
+
+    setClearLoading(true);
+    setClearFeedback(null);
+    try {
+      let currentUsername = 'lead_admin';
+      try {
+        const saved = JSON.parse(localStorage.getItem('lagos_admin_session') || '{}');
+        if (saved?.username) currentUsername = saved.username;
+      } catch (_) {}
+
+      const res = await fetch('http://localhost:3000/api/v1/admin/system/clear-database', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          usernameOrEmail: currentUsername,
+          password: clearPassword.trim(),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.message || json?.error || 'Failed to clear database');
+      }
+      setClearPassword('');
+      setClearFeedback({ text: 'Database cleared cleanly! Refreshing dashboard...', type: 'success' });
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (err: any) {
+      setClearFeedback({ text: err.message || 'Could not clear database.', type: 'error' });
+    } finally {
+      setClearLoading(false);
+    }
+  };
+
   const fetchGlStatus = async () => {
     setGlLoading(true);
     try {
@@ -577,12 +622,12 @@ export const StaffAuditSettingsView: React.FC<StaffAuditSettingsViewProps> = ({
             </div>
             <div className="space-y-2 text-xs">
               <div className="flex justify-between py-2 border-b border-surface-border">
-                <span className="text-slate-400">PostgreSQL 16 Database:</span>
-                <span className="font-bold text-emerald-400 font-mono">CONNECTED</span>
+                <span className="text-slate-400">PostgreSQL Database:</span>
+                <span className="font-bold text-emerald-400 font-mono">{health?.persistenceMode || health?.database || 'CONNECTED'}</span>
               </div>
               <div className="flex justify-between py-2 border-b border-surface-border">
-                <span className="text-slate-400">Redis 7 / BullMQ Queue:</span>
-                <span className="font-bold text-emerald-400 font-mono">CONNECTED</span>
+                <span className="text-slate-400">Batch Transfer Engine:</span>
+                <span className="font-bold text-emerald-400 font-mono">{health?.redisQueue || 'ACTIVE'}</span>
               </div>
               <div className="flex justify-between py-2 border-b border-surface-border">
                 <span className="text-slate-400">Edge CDN / Cloudflare WAF:</span>
@@ -592,6 +637,47 @@ export const StaffAuditSettingsView: React.FC<StaffAuditSettingsViewProps> = ({
                 <span className="text-slate-400">Receipt Cloudflare R2 Storage:</span>
                 <span className="font-bold text-emerald-400 font-mono">SECURE</span>
               </div>
+            </div>
+          </div>
+
+          <div className="md:col-span-2 p-6 rounded-3xl bg-surface border border-rose-500/30 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2 text-rose-400 font-bold text-xs uppercase">
+                <AlertCircle className="w-4 h-4" />
+                <span>Database Maintenance — Clear Orders &amp; Test History</span>
+              </div>
+              <span className="text-[10px] font-mono text-slate-400">Preserves Bank &amp; Owner Vault</span>
+            </div>
+            <p className="text-xs text-slate-400">
+              Permanently wipes all orders, customer records, fulfillment transaction history, and audit logs across both live PostgreSQL and local disk storage.
+            </p>
+            {clearFeedback && (
+              <div
+                className={`p-3 rounded-xl text-xs font-medium ${
+                  clearFeedback.type === 'success'
+                    ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+                    : 'bg-rose-500/10 border border-rose-500/30 text-rose-400'
+                }`}
+              >
+                {clearFeedback.text}
+              </div>
+            )}
+            <div className="flex flex-col sm:flex-row gap-3">
+              <input
+                type="password"
+                value={clearPassword}
+                onChange={(e) => setClearPassword(e.target.value)}
+                placeholder="Enter admin password to confirm"
+                className="flex-1 px-4 py-2.5 rounded-xl bg-background border border-surface-border text-white text-xs font-mono focus:border-rose-400 focus:outline-none"
+              />
+              <button
+                type="button"
+                disabled={clearLoading}
+                onClick={handleClearDatabase}
+                className="px-5 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-bold text-xs uppercase tracking-wider transition disabled:opacity-50 shrink-0"
+              >
+                {clearLoading ? 'Clearing...' : 'Clear Database'}
+              </button>
             </div>
           </div>
         </div>

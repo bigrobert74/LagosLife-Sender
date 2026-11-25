@@ -112,13 +112,14 @@ export class FulfillmentService implements OnApplicationBootstrap {
     this.hydrateFromDatabase();
   }
 
-  private hydrateFromDatabase() {
+  public hydrateFromDatabase() {
     try {
       const savedSettings = this.databaseService.getFulfillmentSettings();
       if (savedSettings) {
         this.settings = { ...this.settings, ...savedSettings };
       }
       const savedJobs = this.databaseService.getFulfillmentJobs();
+      this.jobs.clear();
       for (const j of savedJobs) {
         if (j && j.orderNumber) {
           this.jobs.set(j.orderNumber, j);

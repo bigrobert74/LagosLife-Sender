@@ -76,7 +76,14 @@ try {
   assert(restoredBank, 'KV bank_settings must be restored from PostgreSQL after ephemeral disk wipe');
   assert.strictEqual(restoredBank.accountNumber, '9036627043');
 
-  console.log('✅ Verified PostgreSQL hydration restores orders & KV settings after simulated container wipe!');
+  // Test clearOperationalData preserves KV settings while wiping operational tables
+  await db2.clearOperationalData();
+  const db3 = new DatabaseService(mockPrisma);
+  await db3.onModuleInit();
+  assert.strictEqual(db3.getAllOrders().length, 0, 'Orders must be cleared in PostgreSQL & disk');
+  assert.strictEqual(db3.getKV('bank_settings')?.accountNumber, '9036627043', 'Bank KV settings must be preserved');
+
+  console.log('✅ Verified PostgreSQL hydration & clearOperationalData preserve settings and wipe operational data!');
 } finally {
   try {
     process.chdir(os.tmpdir());

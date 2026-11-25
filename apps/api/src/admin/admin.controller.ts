@@ -300,6 +300,16 @@ export class AdminController {
     return { success: true, data };
   }
 
+  @Post('system/clear-database')
+  @ApiOperation({ summary: 'Clear orders, customers, fulfillment history, and reset ledger (requires admin credentials)' })
+  async clearDatabase(
+    @Body() body: { usernameOrEmail?: string; adminUsername?: string; password?: string },
+    @Req() req: any,
+  ) {
+    const data = await this.adminService.clearDatabase(body, req?.ip || '127.0.0.1');
+    return { success: true, data };
+  }
+
   @Get('search')
   @ApiOperation({ summary: 'Global search across orders, customers, and payment references' })
   async globalSearch(@Query('q') q: string) {

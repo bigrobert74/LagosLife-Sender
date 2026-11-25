@@ -124,6 +124,56 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     return this.pgConnected;
   }
 
+  /** Clears operational records (orders, customers, fulfillment jobs/txs, audit logs, support tickets) and resets inventory ledger/state while keeping config and staff accounts. */
+  public async clearOperationalData(): Promise<{ clearedAt: string }> {
+    const nowIso = new Date().toISOString();
+
+    this.orders.clear();
+    this.customers.clear();
+    this.fulfillmentJobs.clear();
+    this.fulfillmentTransactions = [];
+    this.auditLogs = [];
+    this.supportTickets = [];
+
+    this.inventoryState = {
+      recordedAvailableBalance: '250000000000000',
+      reservedBalance: '0',
+      lifetimeDeliveredBalance: '0',
+      lowInventoryThreshold: '500000000000',
+      lastUpdatedAt: nowIso,
+    };
+
+    this.ledger = [
+      {
+        id: `ledg-reset-${Date.now()}`,
+        type: 'OPENING_BALANCE',
+        amount: '250000000000000',
+        formattedAmount: '250 Trillion',
+        balanceBefore: '0',
+        balanceAfter: '250000000000000',
+        adminUsername: 'system_reset',
+        reason: 'Database cleared — Treasury Reserve reset to initial balance',
+        timestamp: nowIso,
+      },
+    ];
+
+    this.writeTableToDisk('orders', []);
+    this.writeTableToDisk('customers', []);
+    this.writeTableToDisk('fulfillment_jobs', []);
+    this.writeTableToDisk('fulfillment_transactions', []);
+    this.writeTableToDisk('audit_logs', []);
+    this.writeTableToDisk('support_tickets', []);
+    this.writeTableToDisk('inventory_state', this.inventoryState);
+    this.writeTableToDisk('inventory_ledger', this.ledger);
+
+    if (this.pgConnected) {
+      await Promise.allSettled(Array.from(this.pgWriteQueue.values()));
+    }
+
+    this.logger.log('[DatabaseService] Operational database tables cleared and synced.');
+    return { clearedAt: nowIso };
+  }
+
   // -------------------------------------------------------------
   // Data Directory Resolution & Crash-Safe Atomic Persistence
   // -------------------------------------------------------------

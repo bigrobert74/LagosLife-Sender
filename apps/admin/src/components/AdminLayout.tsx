@@ -335,7 +335,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ adminUser, onLogout })
 
           {/* Customer Storefront Link */}
           <a
-            href={(import.meta as any).env?.VITE_STOREFRONT_URL || 'https://lagos-life-web.pages.dev'}
+            href={import.meta.env.VITE_STOREFRONT_URL || 'https://lagos-life-web.pages.dev'}
             target="_blank"
             rel="noopener noreferrer"
             className="hidden sm:flex items-center space-x-1 px-3 py-1.5 rounded-xl border border-surface-border bg-surface-card text-slate-300 hover:text-white text-xs font-semibold transition"

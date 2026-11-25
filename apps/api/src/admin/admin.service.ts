@@ -216,7 +216,7 @@ export class AdminService implements OnApplicationBootstrap {
     this.hydrateFromDatabase();
   }
 
-  private hydrateFromDatabase() {
+  public hydrateFromDatabase() {
     this.auditLogs = this.databaseService.getAuditLogs();
     this.inventoryLedger = this.databaseService.getLedger() as unknown as InventoryLedgerEntry[];
     this.staffUsers = this.databaseService.getStaffUsers();
@@ -1008,6 +1008,36 @@ export class AdminService implements OnApplicationBootstrap {
       redisQueue: 'IN_MEMORY_BATCH_WORKER',
       timestamp: new Date().toISOString(),
       version: this.systemSettings.version,
+    };
+  }
+
+  async clearDatabase(
+    body: { usernameOrEmail?: string; adminUsername?: string; password?: string },
+    ip = '127.0.0.1',
+  ) {
+    const identifier = (body?.usernameOrEmail || body?.adminUsername || '').trim();
+    const pwd = (body?.password || '').trim();
+    const verified = await this.loginAdmin({ usernameOrEmail: identifier, password: pwd });
+
+    const { clearedAt } = await this.databaseService.clearOperationalData();
+    this.hydrateFromDatabase();
+    if (this.fulfillmentService) {
+      this.fulfillmentService.hydrateFromDatabase();
+    }
+
+    this.logAudit(
+      verified.user.username,
+      'CLEAR_DATABASE',
+      'SYSTEM',
+      'database',
+      'Operational database cleared (orders, customers, fulfillment history, audit logs, inventory ledger reset). Configuration preserved.',
+      ip,
+    );
+
+    return {
+      ok: true,
+      clearedAt,
+      message: 'Operational database cleared cleanly while preserving bank settings, owner vault, and staff access.',
     };
   }
 

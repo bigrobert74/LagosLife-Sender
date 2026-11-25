@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   ShieldAlert,
-  ShieldCheck,
   Lock,
   User,
   KeyRound,
@@ -9,9 +8,6 @@ import {
   EyeOff,
   ArrowRight,
   AlertTriangle,
-  Server,
-  CheckCircle2,
-  Cpu,
 } from 'lucide-react';
 
 export interface AdminUserSession {
@@ -36,12 +32,6 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({ onLoginSucce
   const [rememberSession, setRememberSession] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  const handleFillAdmin = () => {
-    setErrorMessage(null);
-    setUsernameOrEmail('lead_admin');
-    setPassword('AdminSecurePassword2026!');
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,53 +73,6 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({ onLoginSucce
         throw new Error(errJson.message || 'Invalid administrator credentials');
       }
     } catch (err: any) {
-      // 2. Client fallback verification for testing / standalone mode
-      const isKnownUser =
-        inputUser.toLowerCase() === 'lead_admin' ||
-        inputUser.toLowerCase() === 'owner@lagoslifemoney.shop' ||
-        inputUser.toLowerCase() === 'payment_officer1' ||
-        inputUser.toLowerCase() === 'runner_boss';
-
-      const isValidPass =
-        inputPass === 'AdminSecurePassword2026!' ||
-        inputPass === 'admin123' ||
-        inputPass === 'password123' ||
-        inputPass.length >= 6;
-
-      if (isKnownUser && isValidPass) {
-        let role: AdminUserSession['role'] = 'SUPER_ADMIN';
-        let name = 'Owner & General Manager';
-        let permissions = ['*'];
-
-        if (inputUser.toLowerCase().includes('payment')) {
-          role = 'PAYMENT_ADMIN';
-          name = 'Chioma Okoli';
-          permissions = ['payments.verify', 'payments.reject', 'orders.view'];
-        } else if (inputUser.toLowerCase().includes('runner')) {
-          role = 'DELIVERY_ADMIN';
-          name = 'Ibrahim Musa';
-          permissions = ['deliveries.start', 'deliveries.complete', 'orders.view'];
-        }
-
-        const fallbackSession: AdminUserSession = {
-          id: `adm-${Date.now()}`,
-          username: inputUser,
-          email: `${inputUser}@lagoslifemoney.shop`,
-          name,
-          role,
-          permissions,
-          token: `sec_local_${Date.now()}`,
-          lastLoginAt: new Date().toISOString(),
-        };
-
-        if (rememberSession) {
-          localStorage.setItem('lagos_admin_session', JSON.stringify(fallbackSession));
-        }
-        setIsLoading(false);
-        onLoginSuccess(fallbackSession);
-        return;
-      }
-
       setIsLoading(false);
       setErrorMessage(
         err.message || 'Authentication failed. Check your staff credentials and try again.',
@@ -202,7 +145,7 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({ onLoginSucce
                   required
                   value={usernameOrEmail}
                   onChange={(e) => setUsernameOrEmail(e.target.value)}
-                  placeholder="e.g. lead_admin or owner@lagoslifemoney.shop"
+                  placeholder="Enter administrator username or email"
                   className="w-full pl-10 pr-4 py-3 rounded-xl bg-background border border-surface-border text-white text-sm focus:border-primary focus:outline-none font-mono placeholder:text-slate-500 transition"
                 />
               </div>
@@ -271,35 +214,6 @@ export const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({ onLoginSucce
               )}
             </button>
           </form>
-
-          {/* Single Administrator Login Details */}
-          <div className="mt-8 pt-6 border-t border-surface-border">
-            <div className="flex items-center justify-between mb-2.5">
-              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">
-                Administrator Login Details
-              </span>
-              <span className="text-[10px] text-primary font-mono font-semibold">1-Click Auto Fill</span>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleFillAdmin}
-              className="w-full p-3 rounded-2xl bg-background hover:bg-surface-border/50 border border-surface-border text-left transition group flex items-center justify-between"
-            >
-              <div>
-                <div className="text-xs font-bold text-white group-hover:text-primary transition flex items-center space-x-1.5">
-                  <ShieldCheck className="w-3.5 h-3.5 text-primary" />
-                  <span>Lead Administrator</span>
-                </div>
-                <div className="text-[11px] text-slate-400 font-mono mt-1">
-                  Username: <span className="text-slate-200 font-bold">lead_admin</span> &nbsp;•&nbsp; Password: <span className="text-slate-200 font-bold">AdminSecurePassword2026!</span>
-                </div>
-              </div>
-              <span className="text-[10px] font-mono text-primary bg-primary/10 px-2.5 py-1 rounded-lg border border-primary/30 group-hover:bg-primary group-hover:text-black font-bold transition shrink-0 ml-2">
-                Auto Fill
-              </span>
-            </button>
-          </div>
         </div>
       </div>
 
