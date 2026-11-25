@@ -7,7 +7,7 @@ services:
     runtime: node
     plan: free
     region: frankfurt
-    buildCommand: npm install && npm run prisma:generate && npm run build:api
+    buildCommand: npm install --include=dev && npm run prisma:generate && npm run build:api
     startCommand: npm run start
     envVars:
       - key: NODE_ENV

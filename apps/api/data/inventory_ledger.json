@@ -1,5 +1,17 @@
 [
   {
+    "id": "ledg-1795611665965-deliv",
+    "type": "ORDER_DELIVERED",
+    "amount": "500000000000",
+    "formattedAmount": "500 Billion",
+    "balanceBefore": "244200000000000",
+    "balanceAfter": "243700000000000",
+    "relatedOrderId": "LL-190308",
+    "adminUsername": "lead_admin",
+    "reason": "Payment verified & approved. In-game delivery completed for @badeletio. Ref: LL-TX-628553",
+    "timestamp": "2026-11-25T13:01:05.967Z"
+  },
+  {
     "id": "ledg-1795607757468-deliv",
     "type": "ORDER_DELIVERED",
     "amount": "500000000000",

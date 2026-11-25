@@ -29,6 +29,11 @@
   ],
   "author": "Lagos Life Virtual Hub",
   "license": "UNLICENSED",
+  "dependencies": {
+    "@nestjs/cli": "^11.0.1",
+    "prisma": "^6.2.1",
+    "typescript": "^5.7.3"
+  },
   "devDependencies": {
     "isomorphic-git": "^1.44.19"
   }

@@ -49,9 +49,9 @@ async function run() {
     process.exit(1);
   }
 
-  // 1. Reset HEAD to 0b338ba7b52592f4aa46f32dbafb246e01f293b8
-  console.log('1. Resetting HEAD to 0b338ba7b52592f4aa46f32dbafb246e01f293b8...');
-  const originMainSha = '0b338ba7b52592f4aa46f32dbafb246e01f293b8';
+  // 1. Reset HEAD to latest commit on origin/main
+  console.log('1. Setting HEAD to 82d19f0c6195bffa810ca9954c816cbf90d4b7a7...');
+  const originMainSha = '82d19f0c6195bffa810ca9954c816cbf90d4b7a7';
   fs.writeFileSync(path.join(dir, '.git', 'refs', 'heads', 'main'), originMainSha + '\n', 'utf8');
 
   // 2. Remove sensitive or temp scripts from git index

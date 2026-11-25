@@ -18,12 +18,12 @@
     "name": "badeletio",
     "customerPhone": null,
     "customerEmail": null,
-    "totalOrders": 2,
-    "completedOrders": 2,
-    "totalSpendNaira": 43000,
+    "totalOrders": 3,
+    "completedOrders": 3,
+    "totalSpendNaira": 48000,
     "totalGameCurrencyPurchased": "0",
-    "firstOrderAt": "2026-11-24T19:14:39.006Z",
-    "lastOrderAt": "2026-11-24T19:54:22.213Z"
+    "firstOrderAt": "2026-11-25T11:55:30.424Z",
+    "lastOrderAt": "2026-11-25T11:55:30.424Z"
   },
   {
     "id": "cust-badeletio",
@@ -31,11 +31,11 @@
     "name": "badeletio",
     "customerPhone": null,
     "customerEmail": null,
-    "totalOrders": 3,
-    "completedOrders": 3,
-    "totalSpendNaira": 48000,
+    "totalOrders": 4,
+    "completedOrders": 4,
+    "totalSpendNaira": 53000,
     "totalGameCurrencyPurchased": "0",
-    "firstOrderAt": "2026-11-25T11:55:30.424Z",
-    "lastOrderAt": "2026-11-25T11:55:30.424Z"
+    "firstOrderAt": "2026-11-25T13:00:35.064Z",
+    "lastOrderAt": "2026-11-25T13:00:35.064Z"
   }
 ]

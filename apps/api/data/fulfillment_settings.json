@@ -3,7 +3,7 @@
   "emergencyShutdown": false,
   "maxSingleTransfer": "100000000000000",
   "dailyLimit": "200000000000000",
-  "dailyDeliveredToday": "50000000000",
+  "dailyDeliveredToday": "550000000000",
   "minReserveBalance": "1000000000",
   "lowBalanceAlertThreshold": "5000000000",
   "maxRetries": 3,

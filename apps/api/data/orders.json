@@ -129,5 +129,35 @@
       "inGameTransactionRef": "LL-TX-845949",
       "adminNotes": "Approved and completed. Statement Ref: STMT-1125-5389. Notes: Verified credit in official mobile bank statement under aaaa"
     }
+  },
+  {
+    "id": "ord-1795611635064",
+    "orderNumber": "LL-190308",
+    "gameUsername": "badeletio",
+    "targetPlayerId": "a999a47af3d14c57bd65",
+    "totalGameCurrency": "500000000000",
+    "formattedGameAmount": "500 Billion",
+    "totalNairaAmount": 5000,
+    "status": "COMPLETED",
+    "bankNameSnapshot": "OPAY",
+    "accountNameSnapshot": "KELVIN",
+    "accountNumberSnapshot": "9036627043",
+    "expiresAt": "2026-11-25T14:00:35.063Z",
+    "createdAt": "2026-11-25T13:00:35.064Z",
+    "submittedPayment": {
+      "senderAccountName": "gggg",
+      "senderBankName": "OPay",
+      "transactionReference": "TXN-1795611645072",
+      "notes": "fff",
+      "submittedAt": "2026-11-25T13:00:45.091Z"
+    },
+    "deliveredAmount": "500000000000",
+    "completedBatches": 5,
+    "totalBatches": 5,
+    "deliveryRecord": {
+      "deliveredAt": "2026-11-25T13:06:01.468Z",
+      "inGameTransactionRef": "f0f6ef157eb44a329e26, 10f8ab341d0b4702b26a, b63035bc149f49ea91e2, a59085526bec4b29b45c, a0a6544fd44845599780",
+      "adminNotes": "Batched fulfillment completed: 5 batches delivered with 70s cooldown. (TXs: f0f6ef157eb44a329e26, 10f8ab341d0b4702b26a, b63035bc149f49ea91e2, a59085526bec4b29b45c, a0a6544fd44845599780)"
+    }
   }
 ]
