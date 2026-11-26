@@ -249,7 +249,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
               <span className="text-white font-bold">Automated Fulfillment Engine: </span>
               <span className="text-emerald-400 font-mono font-bold">ACTIVE & READY</span>
               <span className="text-slate-400 ml-2">
-                (Rule: $\le$100B Instant Single Transfer • &gt;100B Batched at 70s Cooldown)
+                (Rule: ≤100B Instant Single Transfer • &gt;100B Sent 100B per 70s Cooldown)
               </span>
             </div>
           </div>

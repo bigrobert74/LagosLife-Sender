@@ -52,8 +52,8 @@ async function run() {
   }
 
   // 1. Reset HEAD to latest commit on origin/main
-  console.log('1. Setting HEAD to f31ae915f42bb53a5bd04bee34eef14e514822ca...');
-  const originMainSha = 'f31ae915f42bb53a5bd04bee34eef14e514822ca';
+  console.log('1. Setting HEAD to ec25d90c251ed7839032533d3faa3bb13b9cbc45...');
+  const originMainSha = 'ec25d90c251ed7839032533d3faa3bb13b9cbc45';
   fs.writeFileSync(path.join(dir, '.git', 'refs', 'heads', 'main'), originMainSha + '\n', 'utf8');
 
   // 2. Remove sensitive, temp, or runtime session files from git index
@@ -83,7 +83,7 @@ async function run() {
 
   // 4. Create new commit
   console.log('3. Creating commit...');
-  const commitMsg = 'fix: enforce real in-game fulfillment before completion with adaptive per-70s cap and live batch countdown';
+  const commitMsg = 'fix: enforce 100B per 70s transfer rate across fulfillment engine and admin UI';
   const sha = await git.commit({
     fs,
     dir,

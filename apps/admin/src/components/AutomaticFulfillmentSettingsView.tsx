@@ -19,15 +19,15 @@ export const AutomaticFulfillmentSettingsView: React.FC = () => {
   const [settings, setSettings] = useState<any>({
     autoFulfillmentEnabled: true,
     emergencyShutdown: false,
-    maxSingleTransfer: '500000000000',
-    dailyLimit: '2000000000000',
+    maxSingleTransfer: '100000000000000',
+    dailyLimit: '200000000000000',
     dailyDeliveredToday: '0',
     minReserveBalance: '1000000000',
     lowBalanceAlertThreshold: '5000000000',
     maxRetries: 3,
     gradualTransferEnabled: true,
     batchThresholdAmount: '100000000000', // 100B threshold: <= 100B instant 1 transfer, > 100B batched
-    transferChunkAmount: '50000000000', // 50B chunks
+    transferChunkAmount: '100000000000', // 100B per 70 seconds
     transferCooldownSeconds: 70, // 70s strict cooldown floor
   });
 
@@ -354,7 +354,7 @@ export const AutomaticFulfillmentSettingsView: React.FC = () => {
                   <span>Smart Adaptive Batching & 70s Cooldown Engine</span>
                 </h2>
                 <p className="text-xs text-slate-400 mt-1">
-                  Orders $\le$ 100 Billion are sent in 1 immediate transfer. Orders &gt; 100 Billion are automatically delivered in batch chunks spaced by a strict 70-second cooldown delay to protect against Lagos Life anti-spam limits.
+                  Orders ≤ 100 Billion are sent in 1 immediate transfer. Orders &gt; 100 Billion are automatically delivered in 100 Billion chunks spaced by a strict 70-second cooldown delay to protect against Lagos Life anti-spam limits.
                 </p>
               </div>
               <label className="relative inline-flex items-center cursor-pointer select-none">
@@ -404,18 +404,18 @@ export const AutomaticFulfillmentSettingsView: React.FC = () => {
                   ))}
                 </div>
                 <p className="text-[10px] text-emerald-400 font-mono mt-1">
-                  Orders $\le$ ₦LL {Number(settings.batchThresholdAmount || 100000000000).toLocaleString()} send in 1 instant transfer
+                  Orders ≤ ₦LL {Number(settings.batchThresholdAmount || 100000000000).toLocaleString()} send in 1 instant transfer
                 </p>
               </div>
 
               {/* Transfer Amount Per Time (Chunk Size for orders > threshold) */}
               <div>
                 <label className="block text-xs font-mono font-bold uppercase text-slate-300 mb-1.5">
-                  Batch Chunk Size for Orders &gt; Threshold (₦LL)
+                  Batch Chunk Size per 70s (₦LL)
                 </label>
                 <input
                   type="text"
-                  value={settings.transferChunkAmount || '50000000000'}
+                  value={settings.transferChunkAmount || '100000000000'}
                   onChange={(e) =>
                     setSettings({
                       ...settings,
@@ -426,8 +426,8 @@ export const AutomaticFulfillmentSettingsView: React.FC = () => {
                 />
                 <div className="flex items-center space-x-2 mt-2">
                   {[
+                    { label: '100B per 70s (Default)', val: '100000000000' },
                     { label: '50B', val: '50000000000' },
-                    { label: '100B (Recommended)', val: '100000000000' },
                   ].map((p) => (
                     <button
                       key={p.val}
@@ -440,7 +440,7 @@ export const AutomaticFulfillmentSettingsView: React.FC = () => {
                   ))}
                 </div>
                 <p className="text-[10px] text-slate-400 font-mono mt-1">
-                  Amount delivered per batch when an order exceeds threshold
+                  Amount delivered per 70-second cycle (100B max per Lagos Life transfer)
                 </p>
               </div>
 
@@ -452,13 +452,13 @@ export const AutomaticFulfillmentSettingsView: React.FC = () => {
                 <div className="flex items-center space-x-3">
                   <input
                     type="number"
-                    min={5}
+                    min={70}
                     max={600}
-                    value={settings.transferCooldownSeconds || 70}
+                    value={Math.max(70, Number(settings.transferCooldownSeconds || 70))}
                     onChange={(e) =>
                       setSettings({
                         ...settings,
-                        transferCooldownSeconds: Math.max(5, Number(e.target.value)),
+                        transferCooldownSeconds: Math.max(70, Number(e.target.value) || 70),
                       })
                     }
                     className="w-24 px-4 py-2.5 rounded-xl bg-background border border-surface-border text-white text-sm font-mono focus:border-primary focus:outline-none"

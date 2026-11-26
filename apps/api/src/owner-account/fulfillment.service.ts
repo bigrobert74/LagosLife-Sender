@@ -119,6 +119,10 @@ export class FulfillmentService implements OnApplicationBootstrap {
       const savedSettings = this.databaseService.getFulfillmentSettings();
       if (savedSettings) {
         this.settings = { ...this.settings, ...savedSettings };
+        if (this.settings.transferChunkAmount === '50000000000') {
+          this.settings.transferChunkAmount = '100000000000';
+        }
+        this.settings.transferCooldownSeconds = Math.max(70, Number(this.settings.transferCooldownSeconds || 70));
       }
       const savedJobs = this.databaseService.getFulfillmentJobs();
       this.jobs.clear();
@@ -163,11 +167,16 @@ export class FulfillmentService implements OnApplicationBootstrap {
     if (body.gradualTransferEnabled !== undefined) {
       this.settings.gradualTransferEnabled = body.gradualTransferEnabled;
     }
+    if (body.batchThresholdAmount) {
+      this.settings.batchThresholdAmount = body.batchThresholdAmount;
+    }
     if (body.transferChunkAmount) {
-      this.settings.transferChunkAmount = body.transferChunkAmount;
+      const requested = BigInt(body.transferChunkAmount);
+      this.settings.transferChunkAmount =
+        requested > 100_000_000_000n ? '100000000000' : requested.toString();
     }
     if (body.transferCooldownSeconds !== undefined) {
-      this.settings.transferCooldownSeconds = Math.max(1, Number(body.transferCooldownSeconds));
+      this.settings.transferCooldownSeconds = Math.max(70, Number(body.transferCooldownSeconds) || 70);
     }
     this.databaseService.saveFulfillmentSettings(this.settings);
     this.logger.log('Fulfillment settings updated successfully with gradual batch parameters');
