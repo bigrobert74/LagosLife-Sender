@@ -541,6 +541,7 @@ export class AdminService implements OnApplicationBootstrap {
       order.status !== 'PAYMENT_UNDER_REVIEW' &&
       order.status !== 'PENDING_PAYMENT' &&
       order.status !== 'DELIVERY_FAILED' &&
+      order.status !== 'PARTIALLY_DELIVERED' &&
       order.status !== 'WAITING_FOR_DELIVERY'
     ) {
       throw new BadRequestException(`Order cannot be verified in current status ${order.status}`);
