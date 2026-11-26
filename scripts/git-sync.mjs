@@ -52,8 +52,8 @@ async function run() {
   }
 
   // 1. Reset HEAD to latest commit on origin/main
-  console.log('1. Setting HEAD to ec16270643545c93b48da8684132d48ce9f3389e...');
-  const originMainSha = 'ec16270643545c93b48da8684132d48ce9f3389e';
+  console.log('1. Setting HEAD to f31ae915f42bb53a5bd04bee34eef14e514822ca...');
+  const originMainSha = 'f31ae915f42bb53a5bd04bee34eef14e514822ca';
   fs.writeFileSync(path.join(dir, '.git', 'refs', 'heads', 'main'), originMainSha + '\n', 'utf8');
 
   // 2. Remove sensitive, temp, or runtime session files from git index
@@ -83,7 +83,7 @@ async function run() {
 
   // 4. Create new commit
   console.log('3. Creating commit...');
-  const commitMsg = 'fix: collect all live data on owner account connect, clear stale sessions/cache, and remove hardcoded stats';
+  const commitMsg = 'fix: enforce real in-game fulfillment before completion with adaptive per-70s cap and live batch countdown';
   const sha = await git.commit({
     fs,
     dir,

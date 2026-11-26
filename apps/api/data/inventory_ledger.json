@@ -1,13 +1,13 @@
 [
   {
-    "id": "ledg-init-001",
+    "id": "ledg-reset-1795705973301",
     "type": "OPENING_BALANCE",
     "amount": "250000000000000",
     "formattedAmount": "250 Trillion",
     "balanceBefore": "0",
     "balanceAfter": "250000000000000",
-    "adminUsername": "system_init",
-    "reason": "Initial Treasury Reserve initialization",
-    "timestamp": "2026-11-25T19:21:00.000Z"
+    "adminUsername": "system_reset",
+    "reason": "Database cleared — Treasury Reserve reset to initial balance",
+    "timestamp": "2026-11-26T15:12:53.297Z"
   }
 ]

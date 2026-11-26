@@ -28,29 +28,34 @@ export const OrderTrackerModal: React.FC<OrderTrackerModalProps> = ({
   const [order, setOrder] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [now, setNow] = useState<number>(Date.now());
 
   // Hoisted function declaration prevents any temporal dead zone initialization errors
-  async function fetchOrderDetails(orderNum: string) {
+  async function fetchOrderDetails(orderNum: string, silent = false) {
     const cleanNum = (orderNum || '').trim().toUpperCase();
     if (!cleanNum) return;
 
-    setIsLoading(true);
-    setErrorMessage(null);
+    if (!silent) {
+      setIsLoading(true);
+      setErrorMessage(null);
+    }
 
     try {
       const res = await fetch(`http://localhost:3000/api/v1/orders/${encodeURIComponent(cleanNum)}`);
       if (res.ok) {
         const json = await res.json();
         setOrder(json?.data || null);
-      } else {
+      } else if (!silent) {
         setOrder(null);
         setErrorMessage('Order not found. Please double-check your order number.');
       }
     } catch (err) {
       console.warn('API error during order fetch:', err);
-      setErrorMessage('Unable to connect to order server. Please try again in a moment.');
+      if (!silent) {
+        setErrorMessage('Unable to connect to order server. Please try again in a moment.');
+      }
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   }
 
@@ -60,6 +65,22 @@ export const OrderTrackerModal: React.FC<OrderTrackerModalProps> = ({
       fetchOrderDetails(initialOrderNumber);
     }
   }, [isOpen, initialOrderNumber]);
+
+  // Auto-poll live delivery & batch countdown status
+  useEffect(() => {
+    if (!isOpen || !order?.orderNumber) return;
+    if (order.status === 'COMPLETED' || order.status === 'CANCELLED' || order.status === 'PAYMENT_REJECTED') {
+      return;
+    }
+    const poll = setInterval(() => {
+      fetchOrderDetails(order.orderNumber, true);
+    }, 2500);
+    const ticker = setInterval(() => setNow(Date.now()), 1000);
+    return () => {
+      clearInterval(poll);
+      clearInterval(ticker);
+    };
+  }, [isOpen, order?.orderNumber, order?.status]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,7 +97,11 @@ export const OrderTrackerModal: React.FC<OrderTrackerModalProps> = ({
       case 'PAYMENT_VERIFIED':
         return 'Your payment has been approved and your cash delivered in-game.';
       case 'DELIVERY_PROCESSING':
-        return 'Payment verified! Your currency is actively being delivered in-game via automated 100B batches with 70s cooldown timers.';
+        return `Payment verified! Delivering to @${order?.gameUsername || ''} in automated batches with ${order?.transferCooldownSeconds || 70}s cooldown timers.`;
+      case 'PARTIALLY_DELIVERED':
+        return 'Part of your order has been delivered; remaining batches are paused and queued to resume.';
+      case 'DELIVERY_FAILED':
+        return order?.lastDeliveryError || 'Payment verified, but in-game delivery could not complete yet. Contact support or wait for admin retry.';
       case 'WAITING_FOR_DELIVERY':
         return 'Payment approved! Awaiting automated dispatch.';
       case 'PAYMENT_REJECTED':
@@ -203,27 +228,35 @@ export const OrderTrackerModal: React.FC<OrderTrackerModalProps> = ({
             </div>
 
             {/* In-Game Batch Delivery Progress */}
-            {order.totalBatches && order.totalBatches > 1 && (
+            {((order.totalBatches && order.totalBatches > 1) || order.status === 'DELIVERY_PROCESSING' || order.status === 'PARTIALLY_DELIVERED') && (
               <div className="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 space-y-2">
                 <div className="flex justify-between text-xs font-mono">
                   <span className="text-emerald-400 font-bold">
-                    Batch Delivery Progress ({order.completedBatches || (order.status === 'COMPLETED' ? order.totalBatches : 0)}/{order.totalBatches})
+                    Batch Delivery Progress ({order.completedBatches || (order.status === 'COMPLETED' ? order.totalBatches || 1 : 0)}/{order.totalBatches || 1})
                   </span>
                   <span className="text-slate-400">
-                    {order.status === 'COMPLETED' ? '100%' : `${Math.round(((order.completedBatches || 0) / order.totalBatches) * 100)}%`}
+                    {order.status === 'COMPLETED' ? '100%' : `${Math.round(((order.completedBatches || 0) / Math.max(1, order.totalBatches || 1)) * 100)}%`}
                   </span>
                 </div>
                 <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
                   <div
                     className="bg-emerald-400 h-full transition-all duration-500"
                     style={{
-                      width: `${order.status === 'COMPLETED' ? 100 : Math.round(((order.completedBatches || 0) / order.totalBatches) * 100)}%`,
+                      width: `${order.status === 'COMPLETED' ? 100 : Math.round(((order.completedBatches || 0) / Math.max(1, order.totalBatches || 1)) * 100)}%`,
                     }}
                   />
                 </div>
-                <div className="text-[11px] text-slate-400 flex items-center justify-between">
-                  <span>Chunk: 100 Billion per transfer</span>
-                  <span className="text-emerald-400 font-mono">70s Cooldown Enforced</span>
+                <div className="text-[11px] text-slate-400 flex items-center justify-between flex-wrap gap-1">
+                  <span>
+                    Per Transfer: {order.chunkAmount ? `${(Number(order.chunkAmount) / 1e9).toFixed(1)} Billion` : '100 Billion'}
+                  </span>
+                  {order.status === 'DELIVERY_PROCESSING' && order.nextBatchAt ? (
+                    <span className="text-amber-400 font-mono font-bold animate-pulse">
+                      ⏱️ Next batch in {Math.max(0, Math.ceil((new Date(order.nextBatchAt).getTime() - now) / 1000))}s
+                    </span>
+                  ) : (
+                    <span className="text-emerald-400 font-mono">{order.transferCooldownSeconds || 70}s Cooldown Enforced</span>
+                  )}
                 </div>
               </div>
             )}

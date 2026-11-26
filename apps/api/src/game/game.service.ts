@@ -504,12 +504,11 @@ export class GameService implements OnApplicationBootstrap {
     }
 
     const trimmed = query.trim();
-
     const cleanQuery = trimmed.replace(/^@/, '');
 
-    // Check pre-cached or known live players first
+    // Check pre-cached live players first (ignore synthetic usr- placeholders)
     const cached = this.knownPlayersCache.get(cleanQuery.toLowerCase()) || this.knownPlayersCache.get(cleanQuery);
-    if (cached) {
+    if (cached && cached.id && !cached.id.startsWith('usr-')) {
       return { players: [cached] };
     }
 
@@ -517,7 +516,7 @@ export class GameService implements OnApplicationBootstrap {
     try {
       const url = `${this.baseUrl}/api/players?q=${encodeURIComponent(cleanQuery)}`;
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 4000);
+      const timeout = setTimeout(() => controller.abort(), 6000);
 
       const res = await fetch(url, {
         method: 'GET',
@@ -530,14 +529,14 @@ export class GameService implements OnApplicationBootstrap {
         const data = (await res.json()) as PlayerSearchResponse;
         if (data && Array.isArray(data.players) && data.players.length > 0) {
           for (const p of data.players) {
-            this.knownPlayersCache.set(p.username.toLowerCase(), p);
-            this.knownPlayersCache.set(p.id, p);
+            if (p.username) this.knownPlayersCache.set(p.username.toLowerCase(), p);
+            if (p.id) this.knownPlayersCache.set(p.id, p);
           }
           return data;
         }
       }
     } catch (err: any) {
-      // Fallback
+      this.logger.warn(`Live player search error for '${cleanQuery}': ${err?.message || err}`);
     }
 
     const lowerQuery = cleanQuery.toLowerCase();
@@ -548,7 +547,7 @@ export class GameService implements OnApplicationBootstrap {
         p.id.toLowerCase() === lowerQuery,
     );
 
-    if (matched.length === 0 && cleanQuery.length >= 2) {
+    if (matched.length === 0 && process.env.LAGOS_LIFE_LIVE_SYNC !== 'true' && cleanQuery.length >= 2) {
       matched.push({
         id: `usr-${Math.floor(1000 + Math.random() * 9000)}`,
         username: cleanQuery,
@@ -584,7 +583,6 @@ export class GameService implements OnApplicationBootstrap {
     }
 
     // 0.1 Security PIN Resolution:
-    // If incoming pin is omitted, use the connected owner's configured PIN
     let pin = (body.pin || '').toString().trim();
     if (!pin && this.ownerPin) {
       pin = this.ownerPin;
@@ -593,11 +591,9 @@ export class GameService implements OnApplicationBootstrap {
     // 0.2 Target Player Resolution:
     let targetTo = (body.to || '').trim();
 
-    // If targetTo is a placeholder ('usr-2741', 'usr-001') or username (e.g. '@badeletio' or 'badeletio'):
     if (targetTo.startsWith('usr-') || targetTo.startsWith('@') || targetTo.length !== 20) {
       const cleanTarget = targetTo.replace(/^@/, '').trim();
       try {
-        // First search by clean target directly
         const searchRes = await this.searchPlayers(cleanTarget);
         let matched = searchRes.players?.find(
           (p) =>
@@ -606,7 +602,6 @@ export class GameService implements OnApplicationBootstrap {
             p.name.toLowerCase() === cleanTarget.toLowerCase(),
         );
 
-        // If not matched, check known cache
         if (!matched) {
           for (const p of this.knownPlayersCache.values()) {
             if (p.id === targetTo || p.username.toLowerCase() === cleanTarget.toLowerCase()) {
@@ -616,7 +611,6 @@ export class GameService implements OnApplicationBootstrap {
           }
         }
 
-        // If still not matched, check fallback players list
         if (!matched) {
           for (const p of FALLBACK_PLAYERS) {
             if (p.id === targetTo || p.username.toLowerCase() === cleanTarget.toLowerCase()) {
@@ -635,11 +629,22 @@ export class GameService implements OnApplicationBootstrap {
       }
     }
 
-    // If external live server configured, attempt proxying first
+    // If external live server configured, attempt proxying
     if (process.env.LAGOS_LIFE_LIVE_SYNC === 'true') {
+      if (!targetTo || targetTo.startsWith('usr-') || targetTo.length < 16) {
+        throw new HttpException(
+          {
+            ok: false,
+            error: `Recipient character '${body.to}' could not be resolved to a valid Lagos Life player ID.`,
+            code: 'recipient_not_found',
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 12000); // 12s timeout
+        const timeoutId = setTimeout(() => controller.abort(), 12000);
 
         const res = await fetch(`${this.baseUrl}/api/send`, {
           method: 'POST',
@@ -649,13 +654,17 @@ export class GameService implements OnApplicationBootstrap {
         });
         clearTimeout(timeoutId);
 
-        const data = await res.json();
+        const retryAfterHeader = res.headers.get('retry-after');
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           const rawError =
             data?.error ||
             data?.message ||
-            (typeof data === 'string' ? data : JSON.stringify(data)) ||
+            (typeof data === 'string' && data ? data : JSON.stringify(data)) ||
             `Lagos Life API returned HTTP ${res.status}`;
+
+          const retryAfterSeconds =
+            Number(data?.retryAfter || data?.retry_after || data?.cooldown || retryAfterHeader || 0) || undefined;
 
           this.logger.warn(`Live send rejected by Lagos Life (HTTP ${res.status}): ${rawError}`);
           throw new HttpException(
@@ -664,16 +673,29 @@ export class GameService implements OnApplicationBootstrap {
               error: rawError,
               code: data?.code || (res.status === 429 ? 'rate_limit_restricted' : 'send_failed'),
               statusCode: res.status,
+              limit: data?.limit ?? data?.max ?? data?.maxAmount,
+              left: data?.left,
+              retryAfterSeconds,
               data,
             },
             res.status,
           );
         }
 
-        const txId = data.id || `gtx-${Date.now()}`;
+        // Update live cached cash immediately on success
+        const updatedBal = data?.balance ?? data?.newBalance ?? data?.currentBalance;
+        if (updatedBal !== undefined && updatedBal !== null && !Number.isNaN(Number(updatedBal))) {
+          this.savedCash = BigInt(Math.max(0, Math.floor(Number(updatedBal))));
+        } else if (this.savedCash >= BigInt(Math.floor(body.amount || 0))) {
+          this.savedCash -= BigInt(Math.floor(body.amount || 0));
+        }
+        this.cachedGlStatus = null;
+
+        const txId = data?.id || data?.txId || `gtx-${Date.now()}`;
         return {
           ok: true,
           txId,
+          balance: Number(this.savedCash),
           ...data,
         };
       } catch (err: any) {

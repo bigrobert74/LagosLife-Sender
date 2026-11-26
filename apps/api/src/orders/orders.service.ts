@@ -33,6 +33,13 @@ export interface InFlightOrder {
     inGameTransactionRef: string;
     adminNotes?: string;
   };
+  deliveredAmount?: string;
+  completedBatches?: number;
+  totalBatches?: number;
+  chunkAmount?: string;
+  transferCooldownSeconds?: number;
+  nextBatchAt?: string;
+  lastDeliveryError?: string;
 }
 
 @Injectable()
@@ -167,19 +174,6 @@ export class OrdersService {
 
     let modified = false;
 
-    // Auto-migrate any legacy WAITING_FOR_DELIVERY status to COMPLETED (active DELIVERY_PROCESSING remains in-progress)
-    if (order.status === 'WAITING_FOR_DELIVERY') {
-      order.status = 'COMPLETED';
-      if (!order.deliveryRecord) {
-        order.deliveryRecord = {
-          deliveredAt: order.createdAt,
-          inGameTransactionRef: `LL-TX-${order.orderNumber.replace('LL-', '')}`,
-          adminNotes: 'Auto-approved and completed upon payment verification',
-        };
-      }
-      modified = true;
-    }
-
     // Dynamic sync: if order is still pending payment, update bank snapshots to live settings
     if (order.status === 'PENDING_PAYMENT') {
       const liveBank = this.bankSettingsService.getSettings();
@@ -229,14 +223,18 @@ export class OrdersService {
     if (order) {
       order.status = status;
       if (notes) {
-        if (!order.deliveryRecord) {
-          order.deliveryRecord = {
-            deliveredAt: new Date().toISOString(),
-            inGameTransactionRef: `LL-TX-${Date.now()}`,
-            adminNotes: notes,
-          };
+        if (status === 'COMPLETED') {
+          if (!order.deliveryRecord) {
+            order.deliveryRecord = {
+              deliveredAt: new Date().toISOString(),
+              inGameTransactionRef: `LL-TX-${Date.now()}`,
+              adminNotes: notes,
+            };
+          } else {
+            order.deliveryRecord.adminNotes = notes;
+          }
         } else {
-          order.deliveryRecord.adminNotes = notes;
+          (order as any).lastDeliveryError = notes;
         }
       }
       this.databaseService.saveOrder(order);
@@ -287,18 +285,6 @@ export class OrdersService {
   }
 
   async getAllOrders() {
-    return this.databaseService.getAllOrders().map((o) => {
-      if (o.status === 'WAITING_FOR_DELIVERY') {
-        o.status = 'COMPLETED';
-        if (!o.deliveryRecord) {
-          o.deliveryRecord = {
-            deliveredAt: o.createdAt,
-            inGameTransactionRef: `LL-TX-${o.orderNumber.replace('LL-', '')}`,
-            adminNotes: 'Auto-approved and completed upon payment verification',
-          };
-        }
-      }
-      return o;
-    });
+    return this.databaseService.getAllOrders();
   }
 }

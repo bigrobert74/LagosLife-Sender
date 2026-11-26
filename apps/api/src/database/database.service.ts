@@ -134,6 +134,13 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     this.fulfillmentTransactions = [];
     this.auditLogs = [];
     this.supportTickets = [];
+    if (this.fulfillmentSettings) {
+      this.fulfillmentSettings = {
+        ...this.fulfillmentSettings,
+        dailyDeliveredToday: '0',
+      };
+      this.writeTableToDisk('fulfillment_settings', this.fulfillmentSettings);
+    }
 
     this.inventoryState = {
       recordedAvailableBalance: '250000000000000',

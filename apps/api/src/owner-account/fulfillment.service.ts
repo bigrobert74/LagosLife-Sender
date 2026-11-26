@@ -46,6 +46,8 @@ export interface FulfillmentJobRecord {
   formattedAmount: string;
   deliveredAmount: string;
   formattedDeliveredAmount: string;
+  chunkAmount?: string;
+  formattedChunkAmount?: string;
   progressPercent: number;
   totalBatches: number;
   completedBatches: number;
@@ -220,7 +222,7 @@ export class FulfillmentService implements OnApplicationBootstrap {
       throw new NotFoundException(`Order ${orderNumber} not found`);
     }
 
-    // Idempotency safety check: never deliver twice
+    // Idempotency safety check: never deliver twice or spawn duplicate background loops
     if (order.status === 'COMPLETED' || (order as any).deliveryRecord) {
       this.logger.warn(`Order #${orderNumber} is already completed. Skipping duplicate transfer.`);
       return {
@@ -232,14 +234,33 @@ export class FulfillmentService implements OnApplicationBootstrap {
       };
     }
 
+    if (this.activeTransferPromises.get(orderNumber)) {
+      const activeJob = this.jobs.get(orderNumber);
+      this.logger.warn(`Order #${orderNumber} already has an active batched transfer loop running.`);
+      return {
+        ok: true,
+        orderNumber,
+        status: 'PROCESSING',
+        gradualTransfer: true,
+        totalBatches: activeJob?.totalBatches || 1,
+        completedBatches: activeJob?.completedBatches || 0,
+        deliveredAmount: activeJob?.deliveredAmount || '0',
+        chunkAmount: activeJob?.chunkAmount || this.settings.transferChunkAmount,
+        cooldownSeconds: activeJob?.transferCooldownSeconds || this.settings.transferCooldownSeconds || 70,
+        nextBatchAt: activeJob?.nextBatchAt,
+        message: `Batched delivery is already running for #${orderNumber}.`,
+      };
+    }
+
     const orderAmountBig = BigInt(order.totalGameCurrency);
 
     // 1.5 Check Owner Account Connected Status & Transaction PIN
     const accountStatus = await this.ownerAccountService.getStatus();
     if (accountStatus.status !== 'CONNECTED' || !accountStatus.username) {
-      this.logger.warn(`No active Lagos Life owner account linked. Cannot fulfill #${orderNumber}`);
-      this.createJobRecord(order, 'MANUAL_REVIEW_REQUIRED', 'No Lagos Life owner account linked. Please connect an account in Admin -> Owner Account Link.');
-      return { ok: false, reason: 'ACCOUNT_NOT_CONNECTED', manualDeliveryRequired: true };
+      const msg = 'No Lagos Life owner account linked. Please connect an account in Admin -> Owner Account Link.';
+      this.logger.warn(`Cannot fulfill #${orderNumber}: ${msg}`);
+      this.createJobRecord(order, 'MANUAL_REVIEW_REQUIRED', msg);
+      return { ok: false, reason: 'ACCOUNT_NOT_CONNECTED', error: msg, manualDeliveryRequired: true };
     }
 
     let pin: string;
@@ -249,81 +270,103 @@ export class FulfillmentService implements OnApplicationBootstrap {
       pin = '';
     }
     if (!pin || pin.length !== 4) {
-      this.logger.warn(`Owner account PIN not configured. Cannot fulfill #${orderNumber}`);
-      this.createJobRecord(order, 'MANUAL_REVIEW_REQUIRED', 'Owner account 4-digit transfer PIN is not configured.');
-      return { ok: false, reason: 'PIN_NOT_CONFIGURED', manualDeliveryRequired: true };
+      const msg = 'Owner account 4-digit transfer PIN is not configured.';
+      this.logger.warn(`Cannot fulfill #${orderNumber}: ${msg}`);
+      this.createJobRecord(order, 'MANUAL_REVIEW_REQUIRED', msg);
+      return { ok: false, reason: 'PIN_NOT_CONFIGURED', error: msg, manualDeliveryRequired: true };
     }
 
     // 2. Check Emergency Shutdown
     if (this.settings.emergencyShutdown) {
+      const msg = 'Automated delivery paused due to emergency shutdown';
       this.logger.warn(`Emergency shutdown active. Skipping auto-delivery for ${orderNumber}`);
-      this.createJobRecord(order, 'MANUAL_REVIEW_REQUIRED', 'Automated delivery paused due to emergency shutdown');
-      return { ok: false, reason: 'EMERGENCY_SHUTDOWN', manualDeliveryRequired: true };
+      this.createJobRecord(order, 'MANUAL_REVIEW_REQUIRED', msg);
+      return { ok: false, reason: 'EMERGENCY_SHUTDOWN', error: msg, manualDeliveryRequired: true };
     }
 
     // 3. Check Master Auto Toggle
     if (!this.settings.autoFulfillmentEnabled) {
+      const msg = 'Automatic fulfillment is currently turned off in Fulfillment Rules';
       this.logger.log(`Auto fulfillment disabled. Order ${orderNumber} queued for manual fulfillment.`);
-      this.createJobRecord(order, 'QUEUED', 'Waiting for manual delivery or automation enable');
-      return { ok: false, reason: 'AUTOMATION_DISABLED', manualDeliveryRequired: true };
+      this.createJobRecord(order, 'QUEUED', msg);
+      return { ok: false, reason: 'AUTOMATION_DISABLED', error: msg, manualDeliveryRequired: true };
     }
 
     // 4. Verify Single Transfer Limit
     const maxSingle = BigInt(this.settings.maxSingleTransfer);
     if (orderAmountBig > maxSingle) {
-      this.logger.warn(`Order #${orderNumber} amount exceeds max single transfer limit (${maxSingle})`);
-      this.createJobRecord(order, 'MANUAL_REVIEW_REQUIRED', `Order exceeds single transfer limit of ${maxSingle.toLocaleString()}`);
-      return { ok: false, reason: 'EXCEEDS_SINGLE_LIMIT', manualDeliveryRequired: true };
+      const msg = `Order exceeds configured max single order limit (${maxSingle.toLocaleString()})`;
+      this.logger.warn(`Order #${orderNumber}: ${msg}`);
+      this.createJobRecord(order, 'MANUAL_REVIEW_REQUIRED', msg);
+      return { ok: false, reason: 'EXCEEDS_SINGLE_LIMIT', error: msg, manualDeliveryRequired: true };
     }
 
     // 5. Verify Daily Volume Limit
     const dailyLimit = BigInt(this.settings.dailyLimit);
     const deliveredToday = BigInt(this.settings.dailyDeliveredToday);
     if (deliveredToday + orderAmountBig > dailyLimit) {
-      this.logger.warn(`Order #${orderNumber} would exceed daily limit (${dailyLimit})`);
-      this.createJobRecord(order, 'MANUAL_REVIEW_REQUIRED', 'Daily automated volume limit reached');
-      return { ok: false, reason: 'EXCEEDS_DAILY_LIMIT', manualDeliveryRequired: true };
+      const msg = `Daily automated volume limit reached (${Number(deliveredToday).toLocaleString()} / ${Number(dailyLimit).toLocaleString()})`;
+      this.logger.warn(`Order #${orderNumber}: ${msg}`);
+      this.createJobRecord(order, 'MANUAL_REVIEW_REQUIRED', msg);
+      return { ok: false, reason: 'EXCEEDS_DAILY_LIMIT', error: msg, manualDeliveryRequired: true };
     }
 
-    // 6. Check Available Balance & Reserve
-    const balanceInfo = await this.ownerAccountService.getBalance();
-    const availableBig = BigInt(balanceInfo.availableBalance);
+    // 6. Sync Live Owner Balance & Check Available Balance
+    const balanceInfo = await this.ownerAccountService.syncBalance().catch(() => this.ownerAccountService.getBalance());
+    const availableBig = BigInt(balanceInfo.availableBalance || '0');
     const minReserveBig = BigInt(this.settings.minReserveBalance);
 
-    if (availableBig < orderAmountBig || (availableBig - orderAmountBig) < minReserveBig) {
-      this.logger.warn(`Insufficient available game balance for #${orderNumber}. Available: ${availableBig}, Need: ${orderAmountBig}`);
-      this.createJobRecord(order, 'MANUAL_REVIEW_REQUIRED', 'Insufficient owner available game currency');
-      return { ok: false, reason: 'INSUFFICIENT_BALANCE', manualDeliveryRequired: true };
+    if (availableBig < orderAmountBig || availableBig - orderAmountBig < minReserveBig) {
+      const msg = `Insufficient owner available cash (Available: ₦LL ${Number(availableBig).toLocaleString()}, Needed: ₦LL ${Number(orderAmountBig).toLocaleString()})`;
+      this.logger.warn(`Order #${orderNumber}: ${msg}`);
+      this.createJobRecord(order, 'MANUAL_REVIEW_REQUIRED', msg);
+      return { ok: false, reason: 'INSUFFICIENT_BALANCE', error: msg, manualDeliveryRequired: true };
     }
 
-    // 7. Reserve Balance on Owner Account
-    this.ownerAccountService.reserveBalance(orderAmountBig);
-    const job = this.createJobRecord(order, 'PROCESSING');
-
-    // 8. Resolve destination character ID
+    // 7. Resolve live destination character ID before transferring
     let targetPlayerId = (order as any).targetPlayerId;
     if (!targetPlayerId || targetPlayerId.startsWith('usr-') || targetPlayerId.length !== 20) {
       const searchRes = await this.gameService.searchPlayers(order.gameUsername);
-      const match = searchRes.players.find(
-        (p) => p.username.toLowerCase() === order.gameUsername.toLowerCase(),
-      );
-      targetPlayerId = match?.id || searchRes.players[0]?.id || targetPlayerId;
+      const match =
+        searchRes.players.find((p) => p.username.toLowerCase() === order.gameUsername.replace(/^@/, '').toLowerCase()) ||
+        searchRes.players[0];
+      if (match?.id) {
+        targetPlayerId = match.id;
+      }
     }
+
+    if (
+      process.env.LAGOS_LIFE_LIVE_SYNC === 'true' &&
+      (!targetPlayerId || targetPlayerId.startsWith('usr-') || targetPlayerId.length < 16)
+    ) {
+      const msg = `Could not find Lagos Life player @${order.gameUsername}. Verify exact in-game username.`;
+      this.logger.warn(`Order #${orderNumber}: ${msg}`);
+      this.createJobRecord(order, 'FAILED', msg);
+      return { ok: false, reason: 'PLAYER_NOT_FOUND', error: msg, manualDeliveryRequired: true };
+    }
+
+    // 8. Reserve remaining balance on Owner Account
+    const existingJob = this.jobs.get(order.orderNumber);
+    const alreadyDeliveredBig = BigInt(existingJob?.deliveredAmount || '0');
+    const remainingToSendBig = orderAmountBig > alreadyDeliveredBig ? orderAmountBig - alreadyDeliveredBig : orderAmountBig;
+    this.ownerAccountService.reserveBalance(remainingToSendBig);
+
+    const job = this.createJobRecord(order, 'PROCESSING');
     job.targetPlayerId = targetPlayerId;
 
     // 9. Adaptive Batching Rule:
-    // Lagos Life Game Server Rule: No single transfer can ever exceed 100 Billion (₦100,000,000,000).
-    // Orders <= 100B (e.g. 1B, 5B, 20B, 50B, 100B): 1 single instant transfer (no waiting)
-    // Orders > 100B (e.g. 120B, 200B, 500B, 1 Trillion): automatically split into batches of up to 100B with a strict 70s cooldown between transfers
-    const MAX_GAME_SERVER_TRANSFER = 100000000000n; // 100 Billion hard ceiling by Lagos Life API
-    const batchThresholdBig = BigInt(this.settings.batchThresholdAmount || '100000000000'); // 100 Billion
-    const isBatchedOrder = orderAmountBig > MAX_GAME_SERVER_TRANSFER || (this.settings.gradualTransferEnabled && orderAmountBig > batchThresholdBig);
+    // Lagos Life Game Server Rule: No single transfer can exceed 100 Billion (₦100,000,000,000),
+    // and accounts with lower limits automatically step down to the highest per-70s cap returned by the server.
+    const MAX_GAME_SERVER_TRANSFER = 100000000000n; // 100 Billion ceiling
+    const batchThresholdBig = BigInt(this.settings.batchThresholdAmount || '100000000000');
+    const isBatchedOrder =
+      orderAmountBig > MAX_GAME_SERVER_TRANSFER ||
+      (this.settings.gradualTransferEnabled && orderAmountBig > batchThresholdBig);
 
     let chunkAmountBig = isBatchedOrder
-      ? BigInt(this.settings.transferChunkAmount || '100000000000') // 100B default chunk for orders > 100B
-      : orderAmountBig; // 1 single transfer for orders <= 100B
+      ? BigInt(this.settings.transferChunkAmount || '100000000000')
+      : orderAmountBig;
 
-    // Hard ceiling safety clamp: chunk can NEVER exceed 100 Billion under any circumstances
     if (chunkAmountBig > MAX_GAME_SERVER_TRANSFER) {
       chunkAmountBig = MAX_GAME_SERVER_TRANSFER;
     }
@@ -331,33 +374,101 @@ export class FulfillmentService implements OnApplicationBootstrap {
     const totalBatches = Math.max(1, Number((orderAmountBig + chunkAmountBig - 1n) / chunkAmountBig));
     job.totalBatches = totalBatches;
     job.isBatchedOrder = isBatchedOrder;
+    job.chunkAmount = chunkAmountBig.toString();
+    job.formattedChunkAmount = Number(chunkAmountBig).toLocaleString();
 
-    // Start transfer execution
-    const executionPromise = this.executeBatchedTransfer(
-      order,
-      job,
-      orderAmountBig,
-      targetPlayerId,
-      isBatchedOrder,
-      chunkAmountBig,
-    );
+    // Await ONLY the first step (Batch 1 result or initial cooldown trigger) so HTTP never times out on multi-batch countdowns,
+    // while failing loudly if Batch 1 is rejected immediately and continuing background batches every 70s until 100% done!
+    return await new Promise<any>((resolveFirstStep) => {
+      let firstStepSettled = false;
+      const settleFirstStep = (payload: any) => {
+        if (!firstStepSettled) {
+          firstStepSettled = true;
+          resolveFirstStep(payload);
+        }
+      };
 
-    // If order <= 100B, await directly for instant response
-    if (!isBatchedOrder) {
-      return await executionPromise;
+      this.executeBatchedTransfer(
+        order,
+        job,
+        orderAmountBig,
+        targetPlayerId,
+        isBatchedOrder,
+        chunkAmountBig,
+        settleFirstStep,
+      )
+        .then((finalOutcome) => {
+          settleFirstStep(finalOutcome);
+        })
+        .catch((err) => {
+          settleFirstStep({ ok: false, error: err?.message || 'Fulfillment execution error', status: 'FAILED' });
+        });
+    });
+  }
+
+  private parseServerTransferLimit(errStr: string, respObj?: any): bigint | null {
+    const parseUnitNum = (numStr: string, suffix?: string): bigint | null => {
+      const cleaned = numStr.replace(/,/g, '').trim();
+      const val = Number(cleaned);
+      if (!Number.isFinite(val) || val <= 0) return null;
+      const s = (suffix || '').toLowerCase();
+      const mult = s === 't' ? 1e12 : s === 'b' ? 1e9 : s === 'm' ? 1e6 : s === 'k' ? 1e3 : 1;
+      const result = Math.floor(val * mult);
+      return result > 0 ? BigInt(result) : null;
+    };
+
+    const jsonLimit = respObj?.left ?? respObj?.maxAmount ?? respObj?.max ?? respObj?.limit;
+    if (jsonLimit !== undefined && jsonLimit !== null) {
+      const parsed = BigInt(Math.max(0, Math.floor(Number(jsonLimit))));
+      if (parsed > 0n) return parsed;
     }
 
-    // Orders > 100B: return immediate processing response while batch worker runs with 70s cooldown
-    return {
-      ok: true,
-      orderNumber,
-      status: 'PROCESSING',
-      gradualTransfer: true,
-      totalBatches: job.totalBatches,
-      chunkAmount: chunkAmountBig.toString(),
-      cooldownSeconds: this.settings.transferCooldownSeconds,
-      message: `Order exceeds 100B: transferring in ${job.totalBatches} batches of ₦LL ${Number(chunkAmountBig).toLocaleString()} with a strict ${this.settings.transferCooldownSeconds}s cooldown between each transfer.`,
-    };
+    const leftMatch = errStr.match(/₦\s*([\d,]+(?:\.\d+)?)\s*([kmbt])?\s*left today/i);
+    if (leftMatch?.[1]) {
+      return parseUnitNum(leftMatch[1], leftMatch[2]);
+    }
+
+    const capMatch = errStr.match(/(?:up to|max(?:imum)?(?: of)?|limit(?: is| of)?)\s*₦?\s*([\d,]+(?:\.\d+)?)\s*([kmbt])?/i);
+    if (capMatch?.[1]) {
+      return parseUnitNum(capMatch[1], capMatch[2]);
+    }
+
+    return null;
+  }
+
+  private parseCooldownSeconds(errStr: string, respObj?: any, defaultSec = 70): number | null {
+    const fromJson = Number(respObj?.retryAfterSeconds || respObj?.retryAfter || respObj?.retry_after || respObj?.cooldown || 0);
+    if (Number.isFinite(fromJson) && fromJson > 0) {
+      return Math.max(5, Math.ceil(fromJson));
+    }
+    const textMatch = errStr.match(/(?:wait|cooldown|try again in|after)\s*(\d+)\s*(?:s|sec|seconds)/i);
+    if (textMatch?.[1]) {
+      const sec = Number(textMatch[1]);
+      if (Number.isFinite(sec) && sec > 0) return Math.max(5, sec);
+    }
+    if (respObj?.statusCode === 429 || respObj?.code === 'rate_limit_restricted' || /cooldown|too fast|rate limit/i.test(errStr)) {
+      return Math.max(10, defaultSec);
+    }
+    return null;
+  }
+
+  private syncLiveOrderProgress(orderNumber: string, job: FulfillmentJobRecord, statusOverride?: string) {
+    try {
+      const liveOrder = this.databaseService.getOrder(orderNumber);
+      if (liveOrder) {
+        if (statusOverride) liveOrder.status = statusOverride;
+        (liveOrder as any).deliveredAmount = job.deliveredAmount;
+        (liveOrder as any).completedBatches = job.completedBatches;
+        (liveOrder as any).totalBatches = job.totalBatches;
+        (liveOrder as any).chunkAmount = job.chunkAmount;
+        (liveOrder as any).transferCooldownSeconds = job.transferCooldownSeconds;
+        (liveOrder as any).nextBatchAt = job.nextBatchAt;
+        if (job.lastError) (liveOrder as any).lastDeliveryError = job.lastError;
+        this.databaseService.saveOrder(liveOrder);
+      }
+    } catch (syncErr: any) {
+      this.logger.warn(`Could not sync live order progress for #${orderNumber}: ${syncErr.message}`);
+    }
   }
 
   // -------------------------------------------------------------
@@ -370,36 +481,39 @@ export class FulfillmentService implements OnApplicationBootstrap {
     targetPlayerId: string,
     isBatchedOrder: boolean,
     chunkAmountBig: bigint,
+    onFirstStep?: (payload: any) => void,
   ) {
-    const cooldownMs = (this.settings.transferCooldownSeconds || 70) * 1000;
+    const defaultCooldownSec = Math.max(10, Number(this.settings.transferCooldownSeconds || 70));
+    const cooldownMs = defaultCooldownSec * 1000;
     const alreadyDeliveredBig = BigInt(job.deliveredAmount || '0');
     let remainingAmountBig = totalAmountBig > alreadyDeliveredBig ? totalAmountBig - alreadyDeliveredBig : 0n;
     let totalBatches = Math.max(1, Number((totalAmountBig + chunkAmountBig - 1n) / chunkAmountBig));
-    let currentBatchNum = Math.min(totalBatches, (job.completedBatches || 0) + 1);
+    let currentBatchNum = (job.completedBatches || 0) + 1;
 
     job.totalBatches = totalBatches;
     job.isBatchedOrder = isBatchedOrder;
+    job.chunkAmount = chunkAmountBig.toString();
+    job.formattedChunkAmount = Number(chunkAmountBig).toLocaleString();
     job.status = 'PROCESSING';
-    job.transferCooldownSeconds = this.settings.transferCooldownSeconds || 70;
+    job.lastError = undefined;
+    job.transferCooldownSeconds = defaultCooldownSec;
     this.activeTransferPromises.set(order.orderNumber, true);
     this.databaseService.saveFulfillmentJob(job);
 
     this.logger.log(
       `Fulfillment for #${order.orderNumber}: Total ₦LL ${totalAmountBig} (${
         isBatchedOrder
-          ? `BATCHED in ${totalBatches} batches with ${this.settings.transferCooldownSeconds}s cooldown (Starting at Batch ${currentBatchNum}/${totalBatches})`
+          ? `BATCHED in ${totalBatches} batches of ₦LL ${Number(chunkAmountBig).toLocaleString()} with ${defaultCooldownSec}s cooldown`
           : 'SINGLE INSTANT TRANSFER'
       })`,
     );
 
     try {
       while (remainingAmountBig > 0n) {
-        // Safety check 1: Check Emergency Shutdown
         if (this.settings.emergencyShutdown) {
           throw new Error('Transfer paused by Emergency Shutdown');
         }
 
-        // Safety check 2: Check active cancellation
         if ((job.status as string) === 'CANCELLED') {
           throw new Error('Transfer cancelled by administrator');
         }
@@ -407,18 +521,17 @@ export class FulfillmentService implements OnApplicationBootstrap {
         const batchSizeInitial = remainingAmountBig > chunkAmountBig ? chunkAmountBig : remainingAmountBig;
         let batchSizeBig = batchSizeInitial;
 
-        // Decrypt PIN in memory
         const decryptedPin = this.ownerAccountService.getDecryptedPin();
 
         let sendResult: any = null;
         let batchErrorMsg: string | null = null;
         let attempt = 0;
-        const maxAttempts = 3;
+        const maxAttempts = 5;
 
         while (attempt < maxAttempts) {
           attempt += 1;
           this.logger.log(
-            `Executing ${isBatchedOrder ? `Batch ${currentBatchNum}/${totalBatches}` : 'Single Transfer'} (Attempt ${attempt}/${maxAttempts}): Sending ₦LL ${batchSizeBig} to ${targetPlayerId}...`,
+            `Executing ${isBatchedOrder ? `Batch ${currentBatchNum}/${totalBatches}` : 'Transfer'} (Attempt ${attempt}/${maxAttempts}): Sending ₦LL ${batchSizeBig} to ${targetPlayerId}...`,
           );
 
           try {
@@ -440,67 +553,99 @@ export class FulfillmentService implements OnApplicationBootstrap {
               'Game server transfer rejected';
             batchErrorMsg = errStr;
 
-            // 1. DYNAMIC HIGHEST-LIMIT ADAPTATION:
-            // If Lagos Life rejects due to daily restricted account ceiling (e.g. "Your account is restricted: you can send up to ₦10m a day. ₦10,000,000 left today.")
-            const leftMatch = errStr.match(/₦([\d,]+)\s*left today/i);
-            const capMatch = errStr.match(/up to ₦([\d]+)m/i);
-
-            let serverHighestLimit: bigint | null = null;
-            if (leftMatch && leftMatch[1]) {
-              const cleaned = leftMatch[1].replace(/,/g, '');
-              const parsed = BigInt(cleaned);
-              if (parsed > 0n) serverHighestLimit = parsed;
-            } else if (capMatch && capMatch[1]) {
-              serverHighestLimit = BigInt(capMatch[1]) * 1_000_000n; // 10m -> 10,000,000
-            }
-
+            // 1. DYNAMIC HIGHEST-LIMIT ADAPTATION (₦100B, ₦50B, ₦10B, ₦10m, etc.)
+            const serverHighestLimit = this.parseServerTransferLimit(errStr, typeof resp === 'object' ? resp : undefined);
             if (serverHighestLimit && serverHighestLimit > 0n && batchSizeBig > serverHighestLimit) {
               this.logger.log(
-                `Adaptive Limit Applied: Lagos Life restriction detected. Adapting chunk from ₦LL ${batchSizeBig} to highest allowable limit ₦LL ${serverHighestLimit.toLocaleString()}!`,
+                `Adaptive Limit Applied: Lagos Life cap detected (₦LL ${Number(serverHighestLimit).toLocaleString()} per transfer). Stepping down batch size!`,
               );
               chunkAmountBig = serverHighestLimit;
+              isBatchedOrder = totalAmountBig > chunkAmountBig;
               batchSizeBig = remainingAmountBig > chunkAmountBig ? chunkAmountBig : remainingAmountBig;
-              totalBatches = currentBatchNum + Math.max(1, Number((remainingAmountBig + chunkAmountBig - 1n) / chunkAmountBig)) - 1;
+              totalBatches =
+                (job.completedBatches || 0) +
+                Math.max(1, Number((remainingAmountBig + chunkAmountBig - 1n) / chunkAmountBig));
               job.totalBatches = totalBatches;
-              continue; // Retry immediately with the highest allowable limit
+              job.isBatchedOrder = isBatchedOrder;
+              job.chunkAmount = chunkAmountBig.toString();
+              job.formattedChunkAmount = Number(chunkAmountBig).toLocaleString();
+              this.databaseService.saveFulfillmentJob(job);
+              this.syncLiveOrderProgress(order.orderNumber, job);
+              continue; // Retry immediately with adapted highest allowable chunk
             }
 
-            // 2. If transient network error, retry after 3s
-            if (err?.code === 'network_error' && attempt < maxAttempts) {
+            // 2. ACTIVE 70-SECOND COOLDOWN (HTTP 429 or "wait X seconds") -> Wait countdown cleanly instead of failing!
+            const waitCooldownSec = this.parseCooldownSeconds(
+              errStr,
+              typeof resp === 'object' ? resp : undefined,
+              defaultCooldownSec,
+            );
+            if (waitCooldownSec && attempt < maxAttempts) {
+              const waitMs = waitCooldownSec * 1000;
+              const nextAt = new Date(Date.now() + waitMs).toISOString();
+              job.isBatchedOrder = true;
+              job.transferCooldownSeconds = waitCooldownSec;
+              job.nextBatchAt = nextAt;
+              job.status = 'PROCESSING';
+              this.databaseService.saveFulfillmentJob(job);
+              this.syncLiveOrderProgress(order.orderNumber, job, 'DELIVERY_PROCESSING');
+
+              onFirstStep?.({
+                ok: true,
+                orderNumber: order.orderNumber,
+                status: 'PROCESSING',
+                gradualTransfer: true,
+                totalBatches: job.totalBatches,
+                completedBatches: job.completedBatches,
+                deliveredAmount: job.deliveredAmount,
+                chunkAmount: chunkAmountBig.toString(),
+                cooldownSeconds: waitCooldownSec,
+                nextBatchAt: nextAt,
+                message: `Cooldown active (${waitCooldownSec}s countdown). Delivering ₦LL ${Number(chunkAmountBig).toLocaleString()} per ${waitCooldownSec}s until complete.`,
+              });
+
+              this.logger.log(
+                `Lagos Life cooldown active for #${order.orderNumber}. Waiting ${waitCooldownSec}s (until ${nextAt}) before Batch ${currentBatchNum}/${totalBatches}...`,
+              );
+              await new Promise((r) => setTimeout(r, waitMs));
+              job.nextBatchAt = undefined;
+              this.databaseService.saveFulfillmentJob(job);
+              continue;
+            }
+
+            // 3. Transient network glitch retry
+            if ((resp?.code === 'network_error' || err?.code === 'network_error') && attempt < maxAttempts) {
               this.logger.warn(`Network glitch communicating with Lagos Life. Retrying in 3s...`);
               await new Promise((r) => setTimeout(r, 3000));
               continue;
             }
 
-            // Other in-game rejection (e.g. daily limit 0 left, or recipient reached cap)
             break;
           }
         }
 
         if (!sendResult || !sendResult.ok) {
-          const finalErrMsg = batchErrorMsg || `Game server transfer error on batch ${currentBatchNum}`;
-          this.logger.warn(`Transfer paused on batch ${currentBatchNum}: ${finalErrMsg}`);
+          const finalErrMsg = batchErrorMsg || `Game server transfer rejected on batch ${currentBatchNum}`;
+          this.logger.warn(`Transfer stopped on batch ${currentBatchNum}: ${finalErrMsg}`);
 
-          // If some batches were delivered, record partial delivery
-          const alreadyDeliveredBig = BigInt(job.deliveredAmount);
-          if (alreadyDeliveredBig > 0n) {
+          const alreadyDeliveredNow = BigInt(job.deliveredAmount);
+          if (alreadyDeliveredNow > 0n) {
             job.status = 'PARTIALLY_DELIVERED';
-            job.lastError = `Delivered ₦LL ${Number(alreadyDeliveredBig).toLocaleString()} in ${job.completedBatches} batches. In-game restriction: ${finalErrMsg}`;
+            job.lastError = `Delivered ₦LL ${Number(alreadyDeliveredNow).toLocaleString()} in ${job.completedBatches} batches. Paused: ${finalErrMsg}`;
           } else {
-            job.status = 'MANUAL_REVIEW_REQUIRED';
-            job.lastError = `In-game delivery paused: ${finalErrMsg}`;
+            job.status = 'FAILED';
+            job.lastError = `Transfer failed: ${finalErrMsg}`;
           }
 
+          job.nextBatchAt = undefined;
           this.ownerAccountService.releaseReservedBalance(remainingAmountBig);
           job.updatedAt = new Date().toISOString();
           this.databaseService.saveFulfillmentJob(job);
           this.activeTransferPromises.delete(order.orderNumber);
 
-          await this.ordersService.updateOrderStatus(
-            order.orderNumber,
-            alreadyDeliveredBig > 0n ? ('PARTIALLY_DELIVERED' as any) : ('WAITING_FOR_DELIVERY' as any),
-            job.lastError,
-          );
+          const failedOrderStatus = alreadyDeliveredNow > 0n ? 'PARTIALLY_DELIVERED' : 'DELIVERY_FAILED';
+          this.syncLiveOrderProgress(order.orderNumber, job, failedOrderStatus);
+          await this.ordersService.updateOrderStatus(order.orderNumber, failedOrderStatus, job.lastError);
 
           return {
             ok: false,
@@ -512,12 +657,11 @@ export class FulfillmentService implements OnApplicationBootstrap {
           };
         }
 
-        // Deduct owner balance for this batch & release corresponding reserve
+        // Batch succeeded -> deduct owner balance & record progress
         this.ownerAccountService.deductActualBalance(batchSizeBig);
         const deliveredToday = BigInt(this.settings.dailyDeliveredToday);
         this.settings.dailyDeliveredToday = (deliveredToday + batchSizeBig).toString();
 
-        // Record Batch Receipt
         const batchRecord: FulfillmentBatchRecord = {
           batchNumber: currentBatchNum,
           totalBatches,
@@ -536,7 +680,6 @@ export class FulfillmentService implements OnApplicationBootstrap {
         job.txId = sendResult.txId;
         job.updatedAt = new Date().toISOString();
 
-        // Safe remaining balance formatting (live server returns varying shapes)
         const safeBalance =
           sendResult?.balance != null
             ? String(sendResult.balance)
@@ -546,7 +689,6 @@ export class FulfillmentService implements OnApplicationBootstrap {
             ? String(sendResult.currentBalance)
             : 'N/A';
 
-        // Log transaction
         const txRecord = {
           id: `gtx-${Date.now()}-${currentBatchNum}`,
           txId: sendResult.txId,
@@ -562,70 +704,80 @@ export class FulfillmentService implements OnApplicationBootstrap {
         this.transactions.unshift(txRecord);
         this.databaseService.addFulfillmentTransaction(txRecord);
 
-        // Update live order record with batch progress so clients can poll live status
-        try {
-          const liveOrder = this.databaseService.getOrder(order.orderNumber);
-          if (liveOrder) {
-            (liveOrder as any).deliveredAmount = job.deliveredAmount;
-            (liveOrder as any).completedBatches = job.completedBatches;
-            (liveOrder as any).totalBatches = job.totalBatches;
-            this.databaseService.saveOrder(liveOrder);
-          }
-        } catch (syncErr: any) {
-          this.logger.warn(`Could not sync live order progress for #${order.orderNumber}: ${syncErr.message}`);
-        }
-
-        this.databaseService.saveFulfillmentJob(job);
-        this.databaseService.saveFulfillmentSettings(this.settings);
-
         remainingAmountBig -= batchSizeBig;
         currentBatchNum += 1;
 
-        // If more batches remain for orders > 100B, enforce the strict 70-second cooldown timer!
+        this.databaseService.saveFulfillmentJob(job);
+        this.databaseService.saveFulfillmentSettings(this.settings);
+        this.syncLiveOrderProgress(
+          order.orderNumber,
+          job,
+          remainingAmountBig > 0n ? 'DELIVERY_PROCESSING' : undefined,
+        );
+
+        // If more batches remain, set the live 70-second cooldown countdown timer BEFORE sleeping!
         if (remainingAmountBig > 0n) {
           const nextBatchAt = new Date(Date.now() + cooldownMs).toISOString();
+          job.isBatchedOrder = true;
           job.nextBatchAt = nextBatchAt;
           job.status = 'PROCESSING';
           this.databaseService.saveFulfillmentJob(job);
+          this.syncLiveOrderProgress(order.orderNumber, job, 'DELIVERY_PROCESSING');
+
+          onFirstStep?.({
+            ok: true,
+            orderNumber: order.orderNumber,
+            status: 'PROCESSING',
+            gradualTransfer: true,
+            totalBatches: job.totalBatches,
+            completedBatches: job.completedBatches,
+            deliveredAmount: job.deliveredAmount,
+            chunkAmount: chunkAmountBig.toString(),
+            cooldownSeconds: defaultCooldownSec,
+            nextBatchAt,
+            message: `Batch ${job.completedBatches}/${job.totalBatches} sent! Sending ₦LL ${Number(chunkAmountBig).toLocaleString()} every ${defaultCooldownSec}s until complete.`,
+          });
 
           this.logger.log(
-            `Batch ${job.completedBatches}/${totalBatches} delivered (₦LL ${Number(batchSizeBig).toLocaleString()} sent). Enforcing strict ${this.settings.transferCooldownSeconds}s cooldown until ${nextBatchAt} before next batch...`,
+            `Batch ${job.completedBatches}/${totalBatches} delivered (₦LL ${Number(batchSizeBig).toLocaleString()} sent). Enforcing ${defaultCooldownSec}s cooldown until ${nextBatchAt}...`,
           );
 
           await new Promise((resolve) => setTimeout(resolve, cooldownMs));
 
           job.nextBatchAt = undefined;
           this.databaseService.saveFulfillmentJob(job);
+          this.syncLiveOrderProgress(order.orderNumber, job, 'DELIVERY_PROCESSING');
         }
       }
 
       // All batches completed successfully!
       job.status = 'SUCCEEDED';
+      job.progressPercent = 100;
       job.nextBatchAt = undefined;
       job.processedAt = new Date().toISOString();
       job.updatedAt = new Date().toISOString();
       this.databaseService.saveFulfillmentJob(job);
-      this.databaseService.saveFulfillmentJob(job);
+      this.syncLiveOrderProgress(order.orderNumber, job);
 
       const allTxRefs = job.batchHistory.map((b) => b.txId).join(', ');
 
-      // Mark order as COMPLETED in OrdersService
       await this.ordersService.completeDelivery(order.orderNumber, {
         inGameTxRef: allTxRefs,
-        adminNotes: isBatchedOrder
-          ? `Batched fulfillment completed: ${totalBatches} batches delivered with ${this.settings.transferCooldownSeconds}s cooldown. (TXs: ${allTxRefs})`
+        adminNotes: job.isBatchedOrder
+          ? `Batched fulfillment completed: ${job.completedBatches} batches delivered (₦LL ${Number(chunkAmountBig).toLocaleString()} every ${defaultCooldownSec}s). (TXs: ${allTxRefs})`
           : `Single instant fulfillment completed. (TX: ${allTxRefs})`,
       });
 
       this.activeTransferPromises.delete(order.orderNumber);
-      this.logger.log(`Order #${order.orderNumber} 100% completed! All ${totalBatches} batches fulfilled.`);
+      this.logger.log(`Order #${order.orderNumber} 100% completed! All ${job.completedBatches} batches fulfilled.`);
 
       return {
         ok: true,
         orderNumber: order.orderNumber,
         txId: job.txId,
         allTxRefs,
-        totalBatches,
+        totalBatches: job.totalBatches,
+        completedBatches: job.completedBatches,
         deliveredAmount: totalAmountBig.toString(),
         targetPlayerId,
         status: 'COMPLETED',
@@ -641,15 +793,14 @@ export class FulfillmentService implements OnApplicationBootstrap {
       this.ownerAccountService.releaseReservedBalance(remainingAmountBig);
 
       job.retryCount += 1;
+      job.nextBatchAt = undefined;
       job.lastError = cleanErrMsg;
       job.updatedAt = new Date().toISOString();
 
-      if (job.retryCount >= this.settings.maxRetries) {
-        job.status = 'FAILED';
-      } else {
-        job.status = 'MANUAL_REVIEW_REQUIRED';
-      }
+      const deliveredSoFar = BigInt(job.deliveredAmount || '0');
+      job.status = deliveredSoFar > 0n ? 'PARTIALLY_DELIVERED' : 'FAILED';
       this.databaseService.saveFulfillmentJob(job);
+      this.syncLiveOrderProgress(order.orderNumber, job, deliveredSoFar > 0n ? 'PARTIALLY_DELIVERED' : 'DELIVERY_FAILED');
 
       this.activeTransferPromises.delete(order.orderNumber);
 
@@ -660,6 +811,7 @@ export class FulfillmentService implements OnApplicationBootstrap {
         status: job.status,
         batchesCompleted: job.completedBatches,
         totalBatches: job.totalBatches,
+        deliveredAmount: job.deliveredAmount,
       };
     }
   }

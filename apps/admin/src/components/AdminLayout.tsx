@@ -189,14 +189,57 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ adminUser, onLogout })
 
   const handleVerifyPayment = async (orderNumber: string, data: any) => {
     try {
-      await fetch(`http://localhost:3000/api/v1/admin/orders/${orderNumber}/verify-payment`, {
+      const res = await fetch(`http://localhost:3000/api/v1/admin/orders/${orderNumber}/verify-payment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
+      const json = await res.json().catch(() => ({}));
+      const result = json?.data;
+
+      if (!res.ok || result?.deliveryFailed) {
+        const errMsg =
+          result?.error ||
+          result?.message ||
+          json?.message ||
+          'Payment verified, but automatic cash delivery could not execute.';
+        playOrderAlertChime(true);
+        setActiveToast({
+          id: orderNumber,
+          title: `⚠️ DELIVERY FAILED #${orderNumber}`,
+          subtitle: errMsg,
+          order: orders.find((o) => o.orderNumber === orderNumber) || { orderNumber },
+          isUrgent: true,
+        });
+      } else if (result?.status === 'DELIVERY_PROCESSING') {
+        playOrderAlertChime(false);
+        setActiveToast({
+          id: orderNumber,
+          title: `⏳ BATCH DELIVERY STARTED #${orderNumber}`,
+          subtitle: result.message || 'Sending in batches with 70s cooldown countdown.',
+          order: orders.find((o) => o.orderNumber === orderNumber) || { orderNumber },
+          isUrgent: false,
+        });
+      } else {
+        playOrderAlertChime(false);
+        setActiveToast({
+          id: orderNumber,
+          title: `✅ APPROVED & DELIVERED #${orderNumber}`,
+          subtitle: result?.message || 'Cash delivered cleanly in-game.',
+          order: orders.find((o) => o.orderNumber === orderNumber) || { orderNumber },
+          isUrgent: false,
+        });
+      }
       fetchAdminData();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setActiveToast({
+        id: orderNumber,
+        title: `❌ APPROVAL REQUEST FAILED`,
+        subtitle: err?.message || 'Could not reach backend server.',
+        order: orders.find((o) => o.orderNumber === orderNumber) || { orderNumber },
+        isUrgent: true,
+      });
     }
   };
 

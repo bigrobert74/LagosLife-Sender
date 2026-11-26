@@ -99,6 +99,9 @@ export const OrdersManagementView: React.FC<OrdersManagementViewProps> = ({
           >
             <option value="ALL">All Statuses ({orders.length})</option>
             <option value="COMPLETED">Completed</option>
+            <option value="DELIVERY_PROCESSING">Delivering (Countdown Active)</option>
+            <option value="PARTIALLY_DELIVERED">Partially Delivered</option>
+            <option value="DELIVERY_FAILED">Delivery Failed</option>
             <option value="PAYMENT_UNDER_REVIEW">Payment Under Review</option>
             <option value="PENDING_PAYMENT">Pending Payment</option>
             <option value="PAYMENT_REJECTED">Payment Rejected</option>

@@ -151,10 +151,12 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                       <span>Batch Progress</span>
                     </div>
                     <div className="text-xl font-black text-white font-mono">
-                      Batch {job.completedBatches + 1} <span className="text-slate-400 text-sm font-normal">of {job.totalBatches}</span>
+                      Batch {Math.min(job.totalBatches || 1, (job.completedBatches || 0) + 1)}{' '}
+                      <span className="text-slate-400 text-sm font-normal">of {job.totalBatches || 1}</span>
                     </div>
                     <p className="text-[10px] text-slate-400 font-mono mt-1">
-                      {job.completedBatches} delivered • {job.totalBatches - job.completedBatches} remaining
+                      {job.completedBatches || 0} delivered • {Math.max(0, (job.totalBatches || 1) - (job.completedBatches || 0))} remaining
+                      {job.chunkAmount ? ` • ₦LL ${formatBillions(job.chunkAmount)} / ${job.transferCooldownSeconds || 70}s` : ''}
                     </p>
                   </div>
 

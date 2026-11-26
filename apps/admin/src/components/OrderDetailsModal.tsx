@@ -150,6 +150,40 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
           )}
         </div>
 
+        {/* Delivery Progress or Error Box */}
+        {(order.status === 'DELIVERY_PROCESSING' || order.status === 'PARTIALLY_DELIVERED' || order.lastDeliveryError) && (
+          <div
+            className={`mt-4 p-4 rounded-2xl border text-xs space-y-2 ${
+              order.status === 'DELIVERY_FAILED'
+                ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                : 'bg-blue-500/10 border-blue-500/30 text-blue-200'
+            }`}
+          >
+            <div className="flex items-center justify-between font-bold uppercase tracking-wider">
+              <span>
+                {order.status === 'DELIVERY_PROCESSING'
+                  ? 'Batched Delivery In Progress'
+                  : order.status === 'PARTIALLY_DELIVERED'
+                  ? 'Partially Delivered'
+                  : 'Delivery Attention Required'}
+              </span>
+              {order.totalBatches > 0 && (
+                <span className="font-mono">
+                  {order.completedBatches || 0}/{order.totalBatches} batches ({order.transferCooldownSeconds || 70}s cooldown)
+                </span>
+              )}
+            </div>
+            {order.chunkAmount && (
+              <div className="text-[11px] font-mono">
+                Transfer Rate: ₦LL {Number(order.chunkAmount).toLocaleString()} per {order.transferCooldownSeconds || 70}s
+              </div>
+            )}
+            {order.lastDeliveryError && (
+              <div className="text-[11px] text-rose-300 font-mono">{order.lastDeliveryError}</div>
+            )}
+          </div>
+        )}
+
         {/* In-Game Delivery Record Box */}
         {order.deliveryRecord && (
           <div className="mt-4 p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-xs">

@@ -537,7 +537,12 @@ export class AdminService implements OnApplicationBootstrap {
     ip = '127.0.0.1',
   ) {
     const order = await this.ordersService.getOrderByNumber(orderNumber);
-    if (order.status !== 'PAYMENT_UNDER_REVIEW' && order.status !== 'PENDING_PAYMENT') {
+    if (
+      order.status !== 'PAYMENT_UNDER_REVIEW' &&
+      order.status !== 'PENDING_PAYMENT' &&
+      order.status !== 'DELIVERY_FAILED' &&
+      order.status !== 'WAITING_FOR_DELIVERY'
+    ) {
       throw new BadRequestException(`Order cannot be verified in current status ${order.status}`);
     }
 
@@ -549,78 +554,163 @@ export class AdminService implements OnApplicationBootstrap {
       try {
         automatedFulfillment = await this.fulfillmentService.processOrderFulfillment(order.orderNumber);
       } catch (fErr: any) {
-        this.logger.warn(`Automated fulfillment deferred for #${order.orderNumber}: ${fErr.message}`);
+        const errMsg = fErr?.message || 'Automated fulfillment error';
+        this.logger.warn(`Automated fulfillment error for #${order.orderNumber}: ${errMsg}`);
+        automatedFulfillment = { ok: false, error: errMsg, status: 'DELIVERY_FAILED' };
       }
+    } else {
+      automatedFulfillment = {
+        ok: false,
+        reason: 'AUTOMATION_UNAVAILABLE',
+        error: 'Fulfillment engine not initialized',
+        manualDeliveryRequired: true,
+      };
     }
 
-    const txId = automatedFulfillment?.txId || automatedFulfillment?.allTxRefs || `LL-TX-${Math.floor(100000 + Math.random() * 900000)}`;
-    // Check if fulfillment is executing batched gradual transfers (> 100B with 70s cooldown)
-    const isBatched = automatedFulfillment?.status === 'PROCESSING' || automatedFulfillment?.gradualTransfer;
+    const isBatchedProcessing =
+      automatedFulfillment?.ok === true &&
+      (automatedFulfillment?.status === 'PROCESSING' || automatedFulfillment?.gradualTransfer);
+    const isImmediateComplete =
+      automatedFulfillment?.ok === true &&
+      (automatedFulfillment?.status === 'COMPLETED' || automatedFulfillment?.status === 'SUCCEEDED');
 
-    if (isBatched) {
+    if (isBatchedProcessing) {
       order.status = 'DELIVERY_PROCESSING';
-      this.logger.log(`Order #${order.orderNumber} is batched (${automatedFulfillment?.totalBatches || 2} batches). Status set to DELIVERY_PROCESSING.`);
-    } else {
-      order.status = 'COMPLETED';
+      (order as any).totalBatches = automatedFulfillment.totalBatches || (order as any).totalBatches;
+      (order as any).completedBatches = automatedFulfillment.completedBatches ?? (order as any).completedBatches ?? 0;
+      (order as any).deliveredAmount = automatedFulfillment.deliveredAmount ?? (order as any).deliveredAmount ?? '0';
+      (order as any).chunkAmount = automatedFulfillment.chunkAmount;
+      (order as any).transferCooldownSeconds = automatedFulfillment.cooldownSeconds || 70;
+      (order as any).nextBatchAt = automatedFulfillment.nextBatchAt;
+      (order as any).lastDeliveryError = undefined;
+      this.databaseService.saveOrder(order);
 
+      this.logAudit(
+        adminUsername,
+        'APPROVE_PAYMENT',
+        'ORDER',
+        orderNumber,
+        `Payment of ₦${body.confirmedAmount} verified. Automatic batched delivery active (${(order as any).completedBatches || 0}/${(order as any).totalBatches || 1} batches, ${(order as any).transferCooldownSeconds || 70}s cooldown). BankRef: ${body.bankStatementReference}.`,
+        ip,
+      );
+
+      this.phoneNotificationsService
+        .sendPush(
+          `⏳ Delivering #${order.orderNumber}`,
+          `Payment approved! Dispatching ${order.formattedGameAmount} to @${order.gameUsername} in ${(order as any).totalBatches || 'multiple'} batches (${(order as any).transferCooldownSeconds || 70}s cooldown).`,
+          { priority: 'high', tags: 'hourglass_flowing_sand,money_with_wings' },
+        )
+        .catch(() => {});
+
+      return {
+        orderNumber: order.orderNumber,
+        status: 'DELIVERY_PROCESSING',
+        confirmedAmount: body.confirmedAmount,
+        automatedFulfillment,
+        message: automatedFulfillment.message || `Payment approved! Delivering in batches with ${(order as any).transferCooldownSeconds || 70}s countdown.`,
+      };
+    }
+
+    if (isImmediateComplete) {
+      const txId = automatedFulfillment?.txId || automatedFulfillment?.allTxRefs || `LL-TX-${Date.now()}`;
+      order.status = 'COMPLETED';
+      (order as any).lastDeliveryError = undefined;
       if (!order.deliveryRecord) {
         order.deliveryRecord = {
           deliveredAt: new Date().toISOString(),
           inGameTransactionRef: txId,
-          adminNotes: `Approved and completed. Statement Ref: ${body.bankStatementReference}. Notes: ${body.adminNotes || 'Approved'}`,
+          adminNotes: `Approved and delivered in-game. Statement Ref: ${body.bankStatementReference}. Notes: ${body.adminNotes || 'Approved'}`,
         };
       }
+
+      const balanceBefore = this.recordedAvailableBalance;
+      this.recordedAvailableBalance = balanceBefore >= amountBig ? balanceBefore - amountBig : 0n;
+      this.lifetimeDeliveredBalance += amountBig;
+
+      const ledgerEntry: InventoryLedgerEntry = {
+        id: `ledg-${Date.now()}-deliv`,
+        type: 'ORDER_DELIVERED',
+        amount: order.totalGameCurrency,
+        formattedAmount: order.formattedGameAmount,
+        balanceBefore: balanceBefore.toString(),
+        balanceAfter: this.recordedAvailableBalance.toString(),
+        relatedOrderId: order.orderNumber,
+        adminUsername,
+        reason: `Payment verified & in-game delivery completed for @${order.gameUsername}. Ref: ${txId}`,
+        timestamp: new Date().toISOString(),
+      };
+      this.inventoryLedger.unshift(ledgerEntry);
+      this.databaseService.addLedgerEntry(ledgerEntry);
+      this.databaseService.updateInventoryState({
+        recordedAvailableBalance: this.recordedAvailableBalance.toString(),
+        reservedBalance: this.reservedBalance.toString(),
+        lifetimeDeliveredBalance: this.lifetimeDeliveredBalance.toString(),
+      });
+      this.databaseService.saveOrder(order);
+
+      this.logAudit(
+        adminUsername,
+        'APPROVE_PAYMENT',
+        'ORDER',
+        orderNumber,
+        `Payment of ₦${body.confirmedAmount} verified and delivered immediately to @${order.gameUsername}. Ref: ${txId}.`,
+        ip,
+      );
+
+      this.phoneNotificationsService
+        .sendPush(
+          `✅ Approved & Delivered #${order.orderNumber}`,
+          `Payment of ₦${body.confirmedAmount.toLocaleString()} approved! Delivered ${order.formattedGameAmount} to @${order.gameUsername}. Ref: ${txId}`,
+          { priority: 'high', tags: 'white_check_mark,money_with_wings' },
+        )
+        .catch(() => {});
+
+      return {
+        orderNumber: order.orderNumber,
+        status: 'COMPLETED',
+        confirmedAmount: body.confirmedAmount,
+        automatedFulfillment,
+        message: `Payment approved! Order #${order.orderNumber} delivered cleanly in-game (Ref: ${txId}).`,
+      };
     }
 
-    const balanceBefore = this.recordedAvailableBalance;
-    this.recordedAvailableBalance -= amountBig;
-    this.lifetimeDeliveredBalance += amountBig;
+    // Delivery did NOT run or failed: never mark COMPLETED or forge a fake TX receipt!
+    const reasonText =
+      automatedFulfillment?.error ||
+      automatedFulfillment?.reason ||
+      'Automated in-game transfer could not execute. Check Owner Account connection, PIN, balance, and recipient handle.';
+    const manualQueued =
+      automatedFulfillment?.reason === 'AUTOMATION_DISABLED' ||
+      automatedFulfillment?.reason === 'EMERGENCY_SHUTDOWN';
 
-    const ledgerEntry: InventoryLedgerEntry = {
-      id: `ledg-${Date.now()}-deliv`,
-      type: 'ORDER_DELIVERED',
-      amount: order.totalGameCurrency,
-      formattedAmount: order.formattedGameAmount,
-      balanceBefore: balanceBefore.toString(),
-      balanceAfter: this.recordedAvailableBalance.toString(),
-      relatedOrderId: order.orderNumber,
-      adminUsername,
-      reason: `Payment verified & approved. In-game delivery completed for @${order.gameUsername}. Ref: ${txId}`,
-      timestamp: new Date().toISOString(),
-    };
-    this.inventoryLedger.unshift(ledgerEntry);
-    this.databaseService.addLedgerEntry(ledgerEntry);
-    this.databaseService.updateInventoryState({
-      recordedAvailableBalance: this.recordedAvailableBalance.toString(),
-      reservedBalance: this.reservedBalance.toString(),
-      lifetimeDeliveredBalance: this.lifetimeDeliveredBalance.toString(),
-    });
+    order.status =
+      automatedFulfillment?.status === 'PARTIALLY_DELIVERED'
+        ? 'PARTIALLY_DELIVERED'
+        : manualQueued
+        ? 'WAITING_FOR_DELIVERY'
+        : 'DELIVERY_FAILED';
+    (order as any).lastDeliveryError = reasonText;
     this.databaseService.saveOrder(order);
 
     this.logAudit(
       adminUsername,
-      'APPROVE_PAYMENT',
+      'APPROVE_PAYMENT_DELIVERY_DEFERRED',
       'ORDER',
       orderNumber,
-      `Payment of ₦${body.confirmedAmount} verified on bank statement. Order approved and delivered immediately to @${order.gameUsername}. BankRef: ${body.bankStatementReference}.`,
+      `Payment of ₦${body.confirmedAmount} verified (BankRef: ${body.bankStatementReference}), but in-game delivery did NOT complete (${order.status}): ${reasonText}`,
       ip,
     );
 
-    // Send push notification for delivery completion
-    this.phoneNotificationsService
-      .sendPush(
-        `✅ Approved & Delivered #${order.orderNumber}`,
-        `Payment of ₦${body.confirmedAmount.toLocaleString()} approved! Delivered ${order.formattedGameAmount} to @${order.gameUsername}. Ref: ${txId}`,
-        { priority: 'high', tags: 'white_check_mark,money_with_wings' },
-      )
-      .catch(() => {});
-
     return {
       orderNumber: order.orderNumber,
-      status: 'COMPLETED',
+      status: order.status,
+      deliveryFailed: !manualQueued,
+      error: reasonText,
       confirmedAmount: body.confirmedAmount,
       automatedFulfillment,
-      message: `Payment approved! Order #${order.orderNumber} is marked as approved and completed.`,
+      message: manualQueued
+        ? `Payment verified, queued for manual delivery (${reasonText}).`
+        : `Payment verified, but in-game cash transfer failed: ${reasonText}`,
     };
   }
 

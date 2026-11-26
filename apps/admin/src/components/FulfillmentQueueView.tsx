@@ -303,7 +303,7 @@ export const FulfillmentQueueView: React.FC<FulfillmentQueueViewProps> = ({ onMa
                       </td>
                       <td className="py-3.5 px-4 text-right font-mono">
                         <div className="font-bold text-primary">₦LL {job.formattedAmount}</div>
-                        {job.totalBatches > 1 && (
+                        {(job.totalBatches > 1 || job.chunkAmount || job.status === 'PROCESSING') && (
                           <div className="mt-1">
                             <div className="w-full bg-surface-border rounded-full h-1.5 overflow-hidden">
                               <div
@@ -312,7 +312,8 @@ export const FulfillmentQueueView: React.FC<FulfillmentQueueViewProps> = ({ onMa
                               />
                             </div>
                             <div className="text-[10px] text-slate-400 mt-0.5">
-                              {job.completedBatches || (job.status === 'SUCCEEDED' ? job.totalBatches : 0)}/{job.totalBatches} batches ({job.transferCooldownSeconds || 70}s cooldown)
+                              {job.completedBatches || (job.status === 'SUCCEEDED' ? job.totalBatches : 0)}/{job.totalBatches || 1} batches
+                              {job.formattedChunkAmount ? ` • ₦LL ${job.formattedChunkAmount} per ${job.transferCooldownSeconds || 70}s` : ` (${job.transferCooldownSeconds || 70}s cooldown)`}
                             </div>
                             {job.status === 'PROCESSING' && job.nextBatchAt && (
                               <div className="text-[10px] font-mono text-amber-400 font-bold mt-0.5 animate-pulse">
@@ -339,7 +340,7 @@ export const FulfillmentQueueView: React.FC<FulfillmentQueueViewProps> = ({ onMa
                         )}
                       </td>
                       <td className="py-3.5 px-4 text-right space-x-2">
-                        {(job.status === 'FAILED' || job.status === 'MANUAL_REVIEW_REQUIRED') && (
+                        {(job.status === 'FAILED' || job.status === 'MANUAL_REVIEW_REQUIRED' || job.status === 'PARTIALLY_DELIVERED') && (
                           <button
                             onClick={() => handleRetry(job.orderNumber)}
                             disabled={actionLoading === job.orderNumber}
