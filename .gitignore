@@ -34,5 +34,11 @@ Thumbs.db
 *.sln
 *.sw?
 
-# Temporary test files
+# Temporary test files & local runtime session state
 scripts/temp-*
+owner_account_session.json
+game_cookies.json
+apps/api/owner_account_session.json
+apps/api/game_cookies.json
+apps/api/data/owner_account_session.json
+apps/api/data/game_cookies.json

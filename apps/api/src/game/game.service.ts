@@ -120,6 +120,8 @@ export class GameService implements OnApplicationBootstrap {
   private savedCash = 0n; // Live Lagos Life cash balance
   private netWorth = 0n; // Live Lagos Life net worth
   private ownerUsername = ''; // Authenticated character username
+  private ownerDisplayName = ''; // Display name from /api/auth/me
+  private ownerPlayerId = ''; // Player ID from /api/auth/me
   private ownerPin = process.env.LAGOS_LIFE_OWNER_PIN || ''; // Official 4-digit transfer PIN
   private activeChallenges = new Map<string, { username: string; expiresAt: number }>();
   private knownPlayersCache = new Map<string, LagosLifePlayer>();
@@ -141,8 +143,24 @@ export class GameService implements OnApplicationBootstrap {
   }
 
   setOwnerUsername(username: string) {
-    this.ownerUsername = (username || '').trim();
+    const normalized = (username || '').trim();
+    if (this.ownerUsername && normalized && this.ownerUsername.toLowerCase() !== normalized.toLowerCase()) {
+      this.ownerDisplayName = '';
+      this.ownerPlayerId = '';
+      this.savedCash = 0n;
+      this.netWorth = 0n;
+    }
+    this.ownerUsername = normalized;
     this.cachedGlStatus = null;
+    this.glStatusInFlight = null;
+  }
+
+  setOwnerDisplayName(name: string) {
+    this.ownerDisplayName = (name || '').trim();
+  }
+
+  getOwnerDisplayName(): string {
+    return this.ownerDisplayName;
   }
 
   getOwnerUsername(): string {
@@ -158,20 +176,34 @@ export class GameService implements OnApplicationBootstrap {
   }
 
   setCookiesMap(cookies: Record<string, string>) {
+    this.cookies.clear();
     for (const [k, v] of Object.entries(cookies)) {
       if (v) this.cookies.set(k, v);
     }
     this.cachedGlStatus = null;
+    this.glStatusInFlight = null;
     this.saveCookiesToFile();
   }
 
   clearCookies() {
     this.cookies.clear();
+    this.savedCash = 0n;
+    this.netWorth = 0n;
+    this.ownerDisplayName = '';
+    this.ownerPlayerId = '';
+    this.cachedGlStatus = null;
+    this.glStatusInFlight = null;
     this.databaseService?.deleteKV('game_cookies');
-    const cookiePath = path.resolve(process.cwd(), 'game_cookies.json');
-    try {
-      if (fs.existsSync(cookiePath)) fs.unlinkSync(cookiePath);
-    } catch (e) {}
+    const cookiePaths = [
+      path.resolve(process.cwd(), 'game_cookies.json'),
+      path.resolve(process.cwd(), 'apps', 'api', 'data', 'game_cookies.json'),
+      path.resolve(process.cwd(), 'apps', 'api', 'game_cookies.json'),
+    ];
+    for (const cookiePath of cookiePaths) {
+      try {
+        if (fs.existsSync(cookiePath)) fs.unlinkSync(cookiePath);
+      } catch (e) {}
+    }
   }
 
   constructor(@Optional() private readonly databaseService?: DatabaseService) {
@@ -188,27 +220,48 @@ export class GameService implements OnApplicationBootstrap {
   }
 
   private loadDeviceCookiesFromFile() {
-    // 0. Check DatabaseService KV first (Postgres / unified dataDir)
+    // 0. Check DatabaseService KV first (Postgres / unified dataDir is authoritative)
     const kvSession = this.databaseService?.getKV<any>('owner_account_session');
+    const kvCookies = this.databaseService?.getKV<Record<string, string>>('game_cookies');
+
     if (kvSession) {
+      if (kvSession.status === 'NOT_CONNECTED' || !kvSession.username) {
+        this.cookies.clear();
+        this.ownerUsername = '';
+        this.ownerDisplayName = '';
+        this.ownerPlayerId = '';
+        this.savedCash = 0n;
+        this.netWorth = 0n;
+        return;
+      }
+
+      this.cookies.clear();
       if (kvSession.cookies) {
         for (const [k, v] of Object.entries(kvSession.cookies)) {
           if (v) this.cookies.set(k, v as string);
         }
       }
+      if (kvCookies) {
+        for (const [k, v] of Object.entries(kvCookies)) {
+          if (v) this.cookies.set(k, v);
+        }
+      }
       if (kvSession.username) this.ownerUsername = kvSession.username;
-      if (kvSession.savedCash) this.savedCash = BigInt(kvSession.savedCash);
-      if (kvSession.netWorth) this.netWorth = BigInt(kvSession.netWorth);
+      if (kvSession.displayName) this.ownerDisplayName = kvSession.displayName;
+      if (kvSession.savedCash !== undefined) this.savedCash = BigInt(kvSession.savedCash || '0');
+      if (kvSession.netWorth !== undefined) this.netWorth = BigInt(kvSession.netWorth || '0');
+      this.cachedGlStatus = null;
+      return;
     }
 
-    const kvCookies = this.databaseService?.getKV<Record<string, string>>('game_cookies');
-    if (kvCookies) {
+    if (kvCookies && Object.keys(kvCookies).length > 0) {
+      this.cookies.clear();
       for (const [k, v] of Object.entries(kvCookies)) {
         if (v) this.cookies.set(k, v);
       }
     }
 
-    // 1. Check persistent owner_account_session.json on disk
+    // 1. Only inspect legacy disk session files if KV has no active session
     try {
       const sessionPaths = [
         ...(this.databaseService
@@ -224,15 +277,19 @@ export class GameService implements OnApplicationBootstrap {
         if (fs.existsSync(sp)) {
           const raw = fs.readFileSync(sp, 'utf-8');
           const parsed = JSON.parse(raw);
-          if (parsed.cookies) {
-            for (const [k, v] of Object.entries(parsed.cookies)) {
-              if (v) this.cookies.set(k, v as string);
+          if (parsed?.status === 'CONNECTED' && parsed?.username) {
+            this.cookies.clear();
+            if (parsed.cookies) {
+              for (const [k, v] of Object.entries(parsed.cookies)) {
+                if (v) this.cookies.set(k, v as string);
+              }
             }
+            this.ownerUsername = parsed.username;
+            if (parsed.displayName) this.ownerDisplayName = parsed.displayName;
+            if (parsed.savedCash !== undefined) this.savedCash = BigInt(parsed.savedCash || '0');
+            if (parsed.netWorth !== undefined) this.netWorth = BigInt(parsed.netWorth || '0');
+            this.logger.log(`Loaded active character session for @${this.ownerUsername}`);
           }
-          if (parsed.username) this.ownerUsername = parsed.username;
-          if (parsed.savedCash) this.savedCash = BigInt(parsed.savedCash);
-          if (parsed.netWorth) this.netWorth = BigInt(parsed.netWorth);
-          this.logger.log(`Loaded active character session for @${this.ownerUsername}`);
           break;
         }
       }
@@ -240,43 +297,19 @@ export class GameService implements OnApplicationBootstrap {
       this.logger.debug(`Session file check skipped: ${err.message}`);
     }
 
-    // 2. Check game_cookies.json
-    try {
-      const cookieFile = path.resolve(process.cwd(), 'game_cookies.json');
-      if (fs.existsSync(cookieFile)) {
-        const raw = JSON.parse(fs.readFileSync(cookieFile, 'utf-8'));
-        for (const [k, v] of Object.entries(raw)) {
-          if (v) this.cookies.set(k, v as string);
-        }
-      }
-    } catch (err: any) {
-      // ignore
-    }
-
-    // 3. Fallback device cookies file if available
-    try {
-      const deviceFile = path.resolve(
-        process.env.USERPROFILE || 'C:\\Users\\OLADELE AKINTOLA',
-        'Desktop',
-        'lagoslife_tester',
-        'lagoslife_tester',
-        'lagoslife_device.txt',
-      );
-      if (fs.existsSync(deviceFile)) {
-        const lines = fs.readFileSync(deviceFile, 'utf-8').split('\n');
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) continue;
-          const [key, ...vals] = trimmed.split('=');
-          const val = vals.join('=').trim();
-          if (val) {
-            this.cookies.set(key.trim(), val);
-            this.logger.log(`Loaded device cookie: ${key.trim()}`);
+    // 2. Check game_cookies.json only if cookies are still empty
+    if (this.cookies.size === 0) {
+      try {
+        const cookieFile = path.resolve(process.cwd(), 'game_cookies.json');
+        if (fs.existsSync(cookieFile)) {
+          const raw = JSON.parse(fs.readFileSync(cookieFile, 'utf-8'));
+          for (const [k, v] of Object.entries(raw)) {
+            if (v) this.cookies.set(k, v as string);
           }
         }
+      } catch (err: any) {
+        // ignore
       }
-    } catch (err: any) {
-      this.logger.debug(`Device cookie file check skipped: ${err.message}`);
     }
   }
 
@@ -346,7 +379,21 @@ export class GameService implements OnApplicationBootstrap {
     username: string;
     password?: string;
   }) {
-    this.logger.log(`Live Game Auth Login attempt for username: ${body.username} at ${this.baseUrl}/api/auth/login`);
+    const cleanUsername = (body.username || '').trim();
+    const isTwoFactorStep = Boolean(body.challenge || body.action === 'login');
+    this.logger.log(`Live Game Auth Login attempt for username: ${cleanUsername} (2FA step: ${isTwoFactorStep}) at ${this.baseUrl}/api/auth/login`);
+
+    // On initial login for a character, clear previous account's session cookies & cached state
+    if (!isTwoFactorStep) {
+      this.cookies.delete('ll_session');
+      this.cookies.delete('ll_pass');
+      this.savedCash = 0n;
+      this.netWorth = 0n;
+      this.ownerDisplayName = '';
+      this.ownerPlayerId = '';
+      this.cachedGlStatus = null;
+      this.glStatusInFlight = null;
+    }
 
     // If external live server configured, attempt proxying first
     if (process.env.LAGOS_LIFE_LIVE_SYNC === 'true') {
@@ -363,12 +410,24 @@ export class GameService implements OnApplicationBootstrap {
         if (!res.ok) {
           throw new HttpException(data, res.status);
         }
-        this.ownerUsername = body.username.trim();
+
+        this.ownerUsername = data?.user?.username || cleanUsername;
+        if (data?.user?.name) this.ownerDisplayName = data.user.name;
+        if (data?.user?.id) this.ownerPlayerId = data.user.id;
+        this.cachedGlStatus = null;
+        this.glStatusInFlight = null;
         this.saveCookiesToFile();
         return data;
-      } catch (err) {
+      } catch (err: any) {
         if (err instanceof HttpException) throw err;
-        this.logger.warn(`Live proxy unreachable, fallback to game auth simulator: ${err}`);
+        this.logger.error(`Live Lagos Life login error for ${cleanUsername}: ${err?.message || err}`);
+        throw new HttpException(
+          {
+            error: `Unable to reach Lagos Life login server: ${err?.message || 'network error'}`,
+            code: 'live_auth_unreachable',
+          },
+          HttpStatus.BAD_GATEWAY,
+        );
       }
     }
 
@@ -692,8 +751,67 @@ export class GameService implements OnApplicationBootstrap {
   }
 
   // -------------------------------------------------------------
-  // 4. GET /api/gl/status — Player Status, Ladder & Saved Facts
+  // 4. GET /api/auth/me, /api/save & /api/gl/status — Live Account Data Collection
   // -------------------------------------------------------------
+  async getAuthMe(): Promise<{ id?: string; username?: string; name?: string } | null> {
+    if (process.env.LAGOS_LIFE_LIVE_SYNC !== 'true' || this.cookies.size === 0) {
+      return null;
+    }
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(`${this.baseUrl}/api/auth/me`, {
+        method: 'GET',
+        headers: this.getHeaders(),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (!res.ok) return null;
+      const data = await res.json();
+      const user = data?.user;
+      if (user) {
+        if (user.username) this.ownerUsername = user.username;
+        if (user.name) this.ownerDisplayName = user.name;
+        if (user.id) this.ownerPlayerId = user.id;
+        return { id: user.id, username: user.username, name: user.name };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  async getSaveSummary(): Promise<{ name?: string; money?: number; city?: string } | null> {
+    if (process.env.LAGOS_LIFE_LIVE_SYNC !== 'true' || this.cookies.size === 0) {
+      return null;
+    }
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(`${this.baseUrl}/api/save`, {
+        method: 'GET',
+        headers: this.getHeaders(),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (!res.ok) return null;
+      const data = await res.json();
+      const simName = data?.game?.sim?.name;
+      const money = data?.game?.money;
+      const city = data?.game?.city || data?.game?.sim?.city;
+      if (simName && !this.ownerDisplayName) {
+        this.ownerDisplayName = simName;
+      }
+      return {
+        name: simName,
+        money: typeof money === 'number' ? money : undefined,
+        city,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   async getGlStatus(forceFresh = false): Promise<GlStatusResponse> {
     const now = Date.now();
     // 1. In-memory TTL cache (15 seconds) - prevents rapid hammering and log spam
@@ -702,57 +820,98 @@ export class GameService implements OnApplicationBootstrap {
     }
 
     // 2. In-flight promise deduplication: coalesce simultaneous calls
-    if (this.glStatusInFlight) {
+    if (!forceFresh && this.glStatusInFlight) {
       return await this.glStatusInFlight;
     }
 
     const fetchPromise = (async (): Promise<GlStatusResponse> => {
-      if (process.env.LAGOS_LIFE_LIVE_SYNC === 'true') {
+      if (process.env.LAGOS_LIFE_LIVE_SYNC === 'true' && (this.cookies.size > 0 || this.ownerUsername)) {
         try {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s fast timeout
 
-          const res = await fetch(`${this.baseUrl}/api/gl/status`, {
-            method: 'GET',
-            headers: this.getHeaders(),
-            signal: controller.signal,
-          });
+          const [glRes, authMe] = await Promise.all([
+            fetch(`${this.baseUrl}/api/gl/status`, {
+              method: 'GET',
+              headers: this.getHeaders(),
+              signal: controller.signal,
+            }),
+            this.getAuthMe(),
+          ]);
           clearTimeout(timeoutId);
 
-          if (res.ok) {
-            const raw = await res.json();
-            const savedNum = raw.ladder?.facts?.saved ?? Number(this.savedCash);
-            const netWorthNum = raw.ladder?.facts?.netWorth ?? Number(this.netWorth);
-            this.savedCash = BigInt(savedNum);
-            this.netWorth = BigInt(netWorthNum);
+          if (glRes.ok) {
+            const raw = await glRes.json();
+            const needsSaveFallback =
+              raw?.ladder?.facts?.saved === undefined ||
+              raw?.ladder?.facts?.saved === null ||
+              (!authMe?.name && !this.ownerDisplayName) ||
+              forceFresh;
+            const saveSummary = needsSaveFallback ? await this.getSaveSummary() : null;
+
+            const savedRaw = raw?.ladder?.facts?.saved;
+            const savedNum =
+              savedRaw !== undefined && savedRaw !== null
+                ? Number(savedRaw)
+                : saveSummary?.money !== undefined
+                  ? Number(saveSummary.money)
+                  : Number(this.savedCash);
+            const netWorthNum =
+              raw?.ladder?.facts?.netWorth !== undefined && raw?.ladder?.facts?.netWorth !== null
+                ? Number(raw.ladder.facts.netWorth)
+                : savedNum || Number(this.netWorth);
+
+            this.savedCash = BigInt(Math.max(0, Math.floor(savedNum || 0)));
+            this.netWorth = BigInt(Math.max(0, Math.floor(netWorthNum || 0)));
+
+            const resolvedUsername = authMe?.username || this.ownerUsername || '';
+            const resolvedDisplayName =
+              authMe?.name ||
+              saveSummary?.name ||
+              this.ownerDisplayName ||
+              raw?.me?.title?.name ||
+              resolvedUsername ||
+              'Connected Account';
+
+            if (authMe?.name || saveSummary?.name) {
+              this.ownerDisplayName = authMe?.name || saveSummary?.name || this.ownerDisplayName;
+            }
+            if (resolvedUsername) {
+              this.ownerUsername = resolvedUsername;
+            }
+
+            const cityRaw = raw?.city || saveSummary?.city;
+            const placeRank = raw?.ladder?.place?.lagos;
+            const tierVal = raw?.ladder?.tiers?.lagos;
+            const titleName = raw?.me?.title?.name;
 
             const result: GlStatusResponse = {
               ok: true,
-              on: true,
-              username: this.ownerUsername || 'demi_thetrillionaire',
-              name: raw.me?.title?.name || this.ownerUsername || 'Yaba Techie',
-              online: true,
-              location: raw.city ? `${raw.city.toUpperCase()}, Nigeria` : 'Lagos, Nigeria',
+              on: raw?.on !== undefined ? Boolean(raw.on) : true,
+              username: resolvedUsername,
+              name: resolvedDisplayName,
+              online: Boolean(raw?.on ?? true),
+              location: cityRaw ? `${String(cityRaw).toUpperCase()}, Nigeria` : 'Lagos, Nigeria',
               progression: {
-                level: raw.ladder?.facts?.jobLv || 8,
-                reputation: raw.ladder?.facts?.followers || 106,
-                rank: raw.me?.title?.name || 'Yaba Techie',
-                tier: raw.ladder?.tiers?.lagos ? `TIER ${raw.ladder.tiers.lagos}` : 'TIER 3',
+                level: raw?.ladder?.facts?.jobLv ?? 0,
+                reputation: raw?.ladder?.facts?.followers ?? 0,
+                rank: titleName || 'Unranked',
+                tier: tierVal !== undefined && tierVal !== null ? `TIER ${tierVal}` : 'Unranked',
               },
-              badges: Array.isArray(raw.me?.badges)
+              badges: Array.isArray(raw?.me?.badges)
                 ? raw.me.badges.map((b: any) => ({
                     id: `bdg-${b.id}`,
-                    name: b.id.toUpperCase(),
+                    name: String(b.id || '').toUpperCase(),
                     icon: b.metal >= 3 ? 'gold' : b.metal === 2 ? 'silver' : 'bronze',
                   }))
                 : [],
-              titles: raw.titles || [],
+              titles: Array.isArray(raw?.titles) ? raw.titles : [],
               ladder: {
-                rank: raw.ladder?.place?.lagos || 2,
-                league: raw.ladder?.place?.lagos ? `Rank #${raw.ladder.place.lagos} in Lagos` : 'Lagos Diamond Tycoons',
+                rank: placeRank ?? 0,
+                league: placeRank ? `Rank #${placeRank} in Lagos` : 'Unplaced in Lagos',
                 facts: {
-                  saved: savedNum,
-                  netWorth: netWorthNum,
+                  saved: savedNum || 0,
+                  netWorth: netWorthNum || 0,
                 },
               },
               raw,
@@ -762,7 +921,7 @@ export class GameService implements OnApplicationBootstrap {
             return result;
           } else {
             if (now - this.lastGlStatusErrorLog > 60000) {
-              this.logger.warn(`Live gl/status returned HTTP ${res.status}. Serving cached/saved profile.`);
+              this.logger.warn(`Live gl/status returned HTTP ${glRes.status}. Attempting fallback profile.`);
               this.lastGlStatusErrorLog = now;
             }
           }
@@ -775,39 +934,36 @@ export class GameService implements OnApplicationBootstrap {
         }
       }
 
-      // If live sync failed but we have a cached status, return it
-      if (this.cachedGlStatus) {
+      // If live sync failed but we have a cached status for the SAME owner, return it
+      if (this.cachedGlStatus && this.cachedGlStatus.data.username === this.ownerUsername) {
         return this.cachedGlStatus.data;
       }
 
-      // Fallback profile using connected owner account facts
-      const fallbackResult: GlStatusResponse = {
+      // Honest fallback profile derived strictly from current connected owner state (zero hardcoded accounts/stats)
+      return {
         ok: !!this.ownerUsername,
         on: !!this.ownerUsername,
-        username: this.ownerUsername || 'demi_thetrillionaire',
-        name: this.ownerUsername || 'Primary Character Vault',
-        online: !!this.ownerUsername,
+        username: this.ownerUsername || '',
+        name: this.ownerDisplayName || this.ownerUsername || 'Not Connected',
+        online: false,
         location: 'Lagos, Nigeria',
         progression: {
-          level: 8,
-          reputation: 106,
-          rank: 'Yaba Techie',
-          tier: 'TIER 3',
+          level: 0,
+          reputation: 0,
+          rank: 'Unranked',
+          tier: 'Unranked',
         },
         badges: [],
-        titles: ['Lagos Tycoon'],
+        titles: [],
         ladder: {
-          rank: 2,
-          league: 'Lagos Diamond Tycoons',
+          rank: 0,
+          league: this.ownerUsername ? 'Awaiting Live Sync' : 'Not Connected',
           facts: {
-            saved: Number(this.savedCash) || 246365321471275,
-            netWorth: Number(this.netWorth) || 246441278263151,
+            saved: Number(this.savedCash) || 0,
+            netWorth: Number(this.netWorth) || 0,
           },
         },
       };
-
-      this.cachedGlStatus = { data: fallbackResult, timestamp: Date.now() };
-      return fallbackResult;
     })();
 
     this.glStatusInFlight = fetchPromise;
@@ -819,9 +975,12 @@ export class GameService implements OnApplicationBootstrap {
   }
 
   async syncBalanceFromLive() {
-    const status = await this.getGlStatus();
-    if (status?.ladder?.facts?.saved) {
-      this.savedCash = BigInt(status.ladder.facts.saved);
+    const status = await this.getGlStatus(true);
+    if (status?.ladder?.facts?.saved !== undefined) {
+      this.savedCash = BigInt(Math.max(0, Math.floor(status.ladder.facts.saved)));
+    }
+    if (status?.ladder?.facts?.netWorth !== undefined) {
+      this.netWorth = BigInt(Math.max(0, Math.floor(status.ladder.facts.netWorth)));
     }
     return status;
   }

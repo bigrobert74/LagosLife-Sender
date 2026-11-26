@@ -612,30 +612,30 @@ export const OwnerAccountConnectionView: React.FC<OwnerAccountConnectionViewProp
               <div className="p-3.5 rounded-2xl bg-background border border-surface-border">
                 <div className="text-[10px] font-mono text-slate-400 uppercase">Rank & Title</div>
                 <div className="text-sm font-bold text-white mt-0.5 truncate">
-                  {accountStatus?.characterStats?.rank || 'Billionaire Syndicate Banker'}
+                  {accountStatus?.characterStats?.rank || 'Unranked'}
                 </div>
                 <div className="text-[10px] text-primary font-mono mt-0.5">
-                  Tier: {accountStatus?.characterStats?.tier || 'ELITE_VAULT'}
+                  Tier: {accountStatus?.characterStats?.tier || 'Unranked'}
                 </div>
               </div>
 
               <div className="p-3.5 rounded-2xl bg-background border border-surface-border">
                 <div className="text-[10px] font-mono text-slate-400 uppercase">Progression Level</div>
                 <div className="text-sm font-bold text-white mt-0.5">
-                  Level {accountStatus?.characterStats?.level || 99}
+                  Level {accountStatus?.characterStats?.level ?? 0}
                 </div>
                 <div className="text-[10px] text-emerald-400 font-mono mt-0.5">
-                  Reputation: {accountStatus?.characterStats?.reputation || 100}%
+                  Reputation: {accountStatus?.characterStats?.reputation ?? 0}
                 </div>
               </div>
 
               <div className="p-3.5 rounded-2xl bg-background border border-surface-border">
                 <div className="text-[10px] font-mono text-slate-400 uppercase">In-Game League</div>
                 <div className="text-sm font-bold text-white mt-0.5 truncate">
-                  {accountStatus?.characterStats?.league || 'Lagos Diamond Tycoons'}
+                  {accountStatus?.characterStats?.league || 'Unplaced'}
                 </div>
                 <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                  Official Central Reserve
+                  {accountStatus?.accountIdentifier || 'Live Character Vault'}
                 </div>
               </div>
 

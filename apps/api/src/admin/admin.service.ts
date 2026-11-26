@@ -328,7 +328,28 @@ export class AdminService implements OnApplicationBootstrap {
       .filter((o) => o.status === 'COMPLETED' || o.status === 'WAITING_FOR_DELIVERY')
       .reduce((acc, curr) => acc + BigInt(curr.totalGameCurrency), BigInt(0));
 
-    const freeBalance = this.recordedAvailableBalance;
+    let recordedAvailStr = this.recordedAvailableBalance.toString();
+    let reservedStr = this.reservedBalance.toString();
+    let freeBalance = this.recordedAvailableBalance;
+    let isLowStock = freeBalance < this.lowInventoryThreshold;
+
+    try {
+      const ownerStatus = await this.ownerAccountService.getStatus();
+      if (ownerStatus?.status === 'CONNECTED') {
+        const bal = await this.ownerAccountService.getBalance();
+        recordedAvailStr = bal.savedCash;
+        reservedStr = bal.reservedBalance;
+        freeBalance = BigInt(bal.availableBalance || '0');
+        isLowStock = bal.lowBalanceWarning;
+      } else {
+        recordedAvailStr = '0';
+        reservedStr = '0';
+        freeBalance = 0n;
+        isLowStock = true;
+      }
+    } catch {
+      // fallback to in-memory recorded values
+    }
 
     return {
       kpiCards: {
@@ -343,41 +364,74 @@ export class AdminService implements OnApplicationBootstrap {
         cancelled,
         totalSalesRevenue,
         totalCashDelivered: totalCashDelivered.toString(),
-        recordedAvailableBalance: this.recordedAvailableBalance.toString(),
+        recordedAvailableBalance: recordedAvailStr,
         freeBalance: freeBalance.toString(),
-        averageOrderValue: orders.length > 0 ? Math.round(totalSalesRevenue / (completed || 1)) : 0,
+        averageOrderValue: completed > 0 ? Math.round(totalSalesRevenue / completed) : 0,
       },
       inventoryHealth: {
-        status: freeBalance < this.lowInventoryThreshold ? 'LOW_STOCK' : 'OPTIMAL',
-        recordedAvailable: this.recordedAvailableBalance.toString(),
-        reserved: this.reservedBalance.toString(),
+        status: isLowStock ? 'LOW_STOCK' : 'OPTIMAL',
+        recordedAvailable: recordedAvailStr,
+        reserved: reservedStr,
         threshold: this.lowInventoryThreshold.toString(),
       },
     };
   }
 
   async getDashboardAnalytics() {
-    // Generate daily/weekly sales chart data
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const revenueTrend = [
-      { day: 'Mon', revenue: 14500, orders: 12, deliveredBillions: 650 },
-      { day: 'Tue', revenue: 22000, orders: 18, deliveredBillions: 1100 },
-      { day: 'Wed', revenue: 18500, orders: 15, deliveredBillions: 920 },
-      { day: 'Thu', revenue: 31000, orders: 24, deliveredBillions: 1600 },
-      { day: 'Fri', revenue: 42000, orders: 32, deliveredBillions: 2200 },
-      { day: 'Sat', revenue: 58000, orders: 46, deliveredBillions: 3100 },
-      { day: 'Sun', revenue: 49000, orders: 38, deliveredBillions: 2700 },
-    ];
+    const orders = await this.ordersService.getAllOrders();
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const today = new Date();
+    const revenueTrend: Array<{ day: string; revenue: number; orders: number; deliveredBillions: number }> = [];
 
-    const packageDistribution = [
-      { name: '50B Lekki Big Boy', share: 42, count: 84 },
-      { name: '20B Mainland Boss', share: 26, count: 52 },
-      { name: '120B Eko Baller', share: 16, count: 32 },
-      { name: '1.0T Island King', share: 10, count: 20 },
-      { name: 'Custom Amounts', share: 6, count: 12 },
-    ];
+    for (let offset = 6; offset >= 0; offset--) {
+      const d = new Date(today);
+      d.setHours(0, 0, 0, 0);
+      d.setDate(d.getDate() - offset);
+      const nextDay = new Date(d);
+      nextDay.setDate(nextDay.getDate() + 1);
 
-    return { revenueTrend, packageDistribution };
+      const dayOrders = orders.filter((o) => {
+        const created = new Date(o.createdAt).getTime();
+        return created >= d.getTime() && created < nextDay.getTime();
+      });
+
+      const clearedDayOrders = dayOrders.filter(
+        (o) => o.status === 'COMPLETED' || o.status === 'WAITING_FOR_DELIVERY' || o.status === 'PAYMENT_VERIFIED',
+      );
+
+      const dayRevenue = clearedDayOrders.reduce((acc, curr) => acc + (Number(curr.totalNairaAmount) || 0), 0);
+      const dayDeliveredBillions = clearedDayOrders.reduce(
+        (acc, curr) => acc + Math.round(Number(curr.totalGameCurrency || 0) / 1_000_000_000),
+        0,
+      );
+
+      revenueTrend.push({
+        day: dayNames[d.getDay()],
+        revenue: dayRevenue,
+        orders: dayOrders.length,
+        deliveredBillions: dayDeliveredBillions,
+      });
+    }
+
+    const weeklyCleared = revenueTrend.reduce((acc, item) => acc + item.revenue, 0);
+
+    const pkgCounts = new Map<string, number>();
+    for (const o of orders) {
+      const label = o.formattedGameAmount || 'Custom Amount';
+      pkgCounts.set(label, (pkgCounts.get(label) || 0) + 1);
+    }
+
+    const totalCount = orders.length || 1;
+    const packageDistribution = Array.from(pkgCounts.entries())
+      .map(([name, count]) => ({
+        name,
+        count,
+        share: Math.round((count / totalCount) * 100),
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    return { revenueTrend, packageDistribution, weeklyCleared };
   }
 
   async getDashboardAlerts() {
@@ -385,7 +439,17 @@ export class AdminService implements OnApplicationBootstrap {
 
     const orders = await this.ordersService.getAllOrders();
     const pendingReview = orders.filter((o) => o.status === 'PAYMENT_UNDER_REVIEW').length;
-    const freeBalance = this.recordedAvailableBalance;
+    let freeBalance = this.recordedAvailableBalance;
+
+    try {
+      const ownerStatus = await this.ownerAccountService.getStatus();
+      if (ownerStatus?.status === 'CONNECTED') {
+        const bal = await this.ownerAccountService.getBalance();
+        freeBalance = BigInt(bal.availableBalance || '0');
+      }
+    } catch {
+      // keep fallback
+    }
 
     if (pendingReview > 0) {
       alerts.push({

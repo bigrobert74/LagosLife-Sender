@@ -25,6 +25,8 @@ async function getAllFiles(currentDir, relativeDir = '') {
     'stage-commit-and-push.mjs',
     'git-push-with-token.mjs',
     'check-commit.mjs',
+    'owner_account_session.json',
+    'game_cookies.json',
   ]);
 
   for (const entry of entries) {
@@ -50,20 +52,27 @@ async function run() {
   }
 
   // 1. Reset HEAD to latest commit on origin/main
-  console.log('1. Setting HEAD to e1b2fc0982ac3f28373cb5eca1a587afeb5333be...');
-  const originMainSha = 'e1b2fc0982ac3f28373cb5eca1a587afeb5333be';
+  console.log('1. Setting HEAD to ec16270643545c93b48da8684132d48ce9f3389e...');
+  const originMainSha = 'ec16270643545c93b48da8684132d48ce9f3389e';
   fs.writeFileSync(path.join(dir, '.git', 'refs', 'heads', 'main'), originMainSha + '\n', 'utf8');
 
-  // 2. Remove sensitive or temp scripts from git index
-  try {
-    await git.remove({ fs, dir, filepath: 'scripts/stage-commit-and-push.mjs' });
-  } catch (e) {}
-  try {
-    await git.remove({ fs, dir, filepath: 'scripts/git-push-with-token.mjs' });
-  } catch (e) {}
-  try {
-    await git.remove({ fs, dir, filepath: 'scripts/check-commit.mjs' });
-  } catch (e) {}
+  // 2. Remove sensitive, temp, or runtime session files from git index
+  const filesToRemove = [
+    'scripts/stage-commit-and-push.mjs',
+    'scripts/git-push-with-token.mjs',
+    'scripts/check-commit.mjs',
+    'apps/api/data/owner_account_session.json',
+    'apps/api/data/game_cookies.json',
+    'apps/api/owner_account_session.json',
+    'apps/api/game_cookies.json',
+    'owner_account_session.json',
+    'game_cookies.json',
+  ];
+  for (const fp of filesToRemove) {
+    try {
+      await git.remove({ fs, dir, filepath: fp });
+    } catch (e) {}
+  }
 
   // 3. Discover and stage all clean project files
   const files = await getAllFiles(dir);
@@ -74,7 +83,7 @@ async function run() {
 
   // 4. Create new commit
   console.log('3. Creating commit...');
-  const commitMsg = 'feat: remove admin credential card from login page and clear operational database';
+  const commitMsg = 'fix: collect all live data on owner account connect, clear stale sessions/cache, and remove hardcoded stats';
   const sha = await git.commit({
     fs,
     dir,

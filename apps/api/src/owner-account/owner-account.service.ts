@@ -67,6 +67,7 @@ export class OwnerAccountService implements OnApplicationBootstrap {
   private accountState: {
     id: string;
     username: string;
+    displayName?: string;
     accountIdentifier: string | null;
     description: string | null;
     status: OwnerAccountStatus['status'];
@@ -80,6 +81,7 @@ export class OwnerAccountService implements OnApplicationBootstrap {
   } = {
     id: 'owner-acc-primary',
     username: '',
+    displayName: undefined,
     accountIdentifier: 'Primary Character Vault',
     description: 'Connected Live Character Vault',
     status: 'NOT_CONNECTED',
@@ -106,21 +108,16 @@ export class OwnerAccountService implements OnApplicationBootstrap {
     private readonly prisma: PrismaService,
     private readonly databaseService: DatabaseService,
   ) {
-    // Auto-load persistent live session from disk (if an account was previously linked)
-    this.loadSessionFromFile();
-
-    if (this.accountState.status === 'CONNECTED' && this.accountState.username) {
-      this.addLog('SYSTEM_BOOT', 'SUCCESS', `Owner account @${this.accountState.username} restored from disk.`);
-      this.syncBalance().catch(() => {});
-    } else {
-      this.addLog('SYSTEM_BOOT', 'SUCCESS', 'Owner account service initialized. Awaiting Lagos Life account link.');
-    }
+    this.addLog('SYSTEM_BOOT', 'SUCCESS', 'Owner account service initialized. Awaiting database bootstrap.');
   }
 
   onApplicationBootstrap() {
     this.loadSessionFromFile();
     if (this.accountState.status === 'CONNECTED' && this.accountState.username) {
+      this.addLog('SYSTEM_BOOT', 'SUCCESS', `Owner account @${this.accountState.username} restored.`);
       this.syncBalance().catch(() => {});
+    } else {
+      this.addLog('SYSTEM_BOOT', 'SUCCESS', 'Awaiting Lagos Life account link.');
     }
   }
 
@@ -137,13 +134,14 @@ export class OwnerAccountService implements OnApplicationBootstrap {
   }
 
   private applySessionPayload(parsed: any): boolean {
-    if (!parsed || (parsed.status !== 'CONNECTED' && !parsed.username)) return false;
+    if (!parsed || parsed.status === 'NOT_CONNECTED' || !parsed.username) return false;
     this.accountState.username = parsed.username || '';
+    this.accountState.displayName = parsed.displayName || undefined;
     this.accountState.status = parsed.username ? parsed.status || 'CONNECTED' : 'NOT_CONNECTED';
     this.accountState.accountIdentifier = parsed.accountIdentifier || 'Primary Character Vault';
     this.accountState.description = parsed.description || 'Connected Live Character Vault';
-    if (parsed.savedCash) this.accountState.savedCash = BigInt(parsed.savedCash);
-    if (parsed.netWorth) this.accountState.netWorth = BigInt(parsed.netWorth);
+    this.accountState.savedCash = BigInt(parsed.savedCash || '0');
+    this.accountState.netWorth = BigInt(parsed.netWorth || '0');
     if (parsed.pin) {
       this.accountState.encryptedPin = this.cryptoService.encrypt(parsed.pin);
       this.gameService.setOwnerPin(parsed.pin);
@@ -153,6 +151,9 @@ export class OwnerAccountService implements OnApplicationBootstrap {
     }
     if (this.accountState.username) {
       this.gameService.setOwnerUsername(this.accountState.username);
+      if (this.accountState.displayName) {
+        this.gameService.setOwnerDisplayName(this.accountState.displayName);
+      }
       this.logger.log(`Active character session for @${this.accountState.username} restored.`);
     }
     this.accountState.lastConnectedAt = parsed.lastConnectedAt || new Date().toISOString();
@@ -162,8 +163,13 @@ export class OwnerAccountService implements OnApplicationBootstrap {
 
   private loadSessionFromFile() {
     const kvSession = this.databaseService.getKV<any>('owner_account_session');
-    if (this.applySessionPayload(kvSession)) {
-      return;
+    if (kvSession) {
+      if (kvSession.status === 'NOT_CONNECTED' || !kvSession.username) {
+        return;
+      }
+      if (this.applySessionPayload(kvSession)) {
+        return;
+      }
     }
 
     try {
@@ -189,6 +195,7 @@ export class OwnerAccountService implements OnApplicationBootstrap {
         : '';
       const sessionData = {
         username: this.accountState.username,
+        displayName: this.accountState.displayName,
         accountIdentifier: this.accountState.accountIdentifier,
         description: this.accountState.description,
         status: this.accountState.status,
@@ -282,8 +289,9 @@ export class OwnerAccountService implements OnApplicationBootstrap {
       const encryptedPin = this.cryptoService.encrypt(pin);
       const encryptedToken = body.apiToken ? this.cryptoService.encrypt(body.apiToken) : null;
 
-      const liveUsername = statusRes.username || body.username.trim();
+      const liveUsername = statusRes?.username || body.username.trim();
       this.accountState.username = liveUsername;
+      this.accountState.displayName = statusRes?.name || undefined;
       this.accountState.accountIdentifier = body.accountIdentifier?.trim() || null;
       this.accountState.description = body.description?.trim() || 'Connected Owner Account';
       this.accountState.encryptedPin = encryptedPin;
@@ -292,9 +300,9 @@ export class OwnerAccountService implements OnApplicationBootstrap {
       this.accountState.lastConnectedAt = new Date().toISOString();
       this.accountState.lastSyncedAt = new Date().toISOString();
 
-      if (statusRes.ladder?.facts?.saved !== undefined) {
-        this.accountState.savedCash = BigInt(statusRes.ladder.facts.saved);
-        this.accountState.netWorth = BigInt(statusRes.ladder.facts.netWorth || 0);
+      if (statusRes?.ladder?.facts?.saved !== undefined) {
+        this.accountState.savedCash = BigInt(Math.max(0, Math.floor(statusRes.ladder.facts.saved)));
+        this.accountState.netWorth = BigInt(Math.max(0, Math.floor(statusRes.ladder.facts.netWorth || 0)));
       }
 
       this.saveSessionToFile();
@@ -330,15 +338,24 @@ export class OwnerAccountService implements OnApplicationBootstrap {
     }
 
     const cleanUsername = body.username.trim();
-    this.logger.log(`In-game login and connect for character @${cleanUsername}`);
+    const isTwoFactorStep = Boolean(body.challenge || body.action === 'login');
+    this.logger.log(`In-game login and connect for character @${cleanUsername} (2FA step: ${isTwoFactorStep})`);
     this.accountState.status = 'CONNECTING';
+
+    if (!isTwoFactorStep) {
+      this.gameService.clearCookies();
+      this.accountState.savedCash = 0n;
+      this.accountState.netWorth = 0n;
+      this.accountState.reservedBalance = 0n;
+      this.accountState.displayName = undefined;
+    }
 
     try {
       this.gameService.setOwnerUsername(cleanUsername);
       this.gameService.setOwnerPin(pin);
 
       // 1. Authenticate with Lagos Life (username + password, handles 2FA challenge triggers)
-      await this.gameService.login({
+      const loginRes: any = await this.gameService.login({
         username: cleanUsername,
         password: body.password,
         action: body.action,
@@ -346,7 +363,7 @@ export class OwnerAccountService implements OnApplicationBootstrap {
         code: body.code,
       });
 
-      // 2. Fetch full live account dossier via GET /api/gl/status (with graceful fallback)
+      // 2. Fetch full live account dossier via GET /api/gl/status + /api/auth/me + /api/save
       let glStatus: any = null;
       try {
         glStatus = await this.gameService.getGlStatus(true);
@@ -358,18 +375,23 @@ export class OwnerAccountService implements OnApplicationBootstrap {
       const encryptedPin = this.cryptoService.encrypt(pin);
 
       // 4. Update persistent account state with all live details
-      this.accountState.username = cleanUsername;
-      this.accountState.accountIdentifier = body.accountIdentifier?.trim() || null;
+      this.accountState.username = glStatus?.username || loginRes?.user?.username || cleanUsername;
+      this.accountState.displayName = glStatus?.name || loginRes?.user?.name || undefined;
+      this.accountState.accountIdentifier = body.accountIdentifier?.trim() || 'Primary Character Vault';
       this.accountState.description = body.description?.trim() || 'Connected Live Character Vault';
       this.accountState.encryptedPin = encryptedPin;
       this.accountState.status = 'CONNECTED';
       this.accountState.lastConnectedAt = new Date().toISOString();
       this.accountState.lastSyncedAt = new Date().toISOString();
 
-      if (glStatus.ladder?.facts?.saved !== undefined) {
-        this.accountState.savedCash = BigInt(glStatus.ladder.facts.saved);
-        this.accountState.netWorth = BigInt(glStatus.ladder.facts.netWorth || 0);
+      if (glStatus?.ladder?.facts?.saved !== undefined) {
+        this.accountState.savedCash = BigInt(Math.max(0, Math.floor(glStatus.ladder.facts.saved)));
+        this.accountState.netWorth = BigInt(Math.max(0, Math.floor(glStatus.ladder.facts.netWorth || 0)));
       }
+
+      this.databaseService.updateInventoryState({
+        recordedAvailableBalance: this.accountState.savedCash.toString(),
+      });
 
       this.saveSessionToFile();
       this.addLog(
@@ -480,26 +502,41 @@ export class OwnerAccountService implements OnApplicationBootstrap {
 
     try {
       const gl: any = await this.gameService.getGlStatus();
-      name = gl.name || gl.me?.name || this.accountState.username;
-      online = true;
-      location = gl.city ? `${gl.city.toUpperCase()}, Nigeria` : 'Lagos, Nigeria';
-      badges = Array.isArray(gl.me?.badges)
-        ? gl.me.badges.map((b: any) => ({
-            id: `bdg-${b.id}`,
-            name: b.id.toUpperCase(),
-            icon: b.metal >= 3 ? 'gold' : b.metal === 2 ? 'silver' : 'bronze',
-          }))
-        : gl.badges || [];
-      titles = Array.isArray(gl.titles) ? gl.titles : ['Lagos Tycoon'];
+      name = gl.name || this.accountState.displayName || gl.raw?.me?.name || this.accountState.username;
+      online = Boolean(gl.online ?? gl.on ?? true);
+      location = gl.location || (gl.raw?.city ? `${String(gl.raw.city).toUpperCase()}, Nigeria` : 'Lagos, Nigeria');
+      badges = Array.isArray(gl.badges)
+        ? gl.badges
+        : Array.isArray(gl.raw?.me?.badges)
+          ? gl.raw.me.badges.map((b: any) => ({
+              id: `bdg-${b.id}`,
+              name: String(b.id || '').toUpperCase(),
+              icon: b.metal >= 3 ? 'gold' : b.metal === 2 ? 'silver' : 'bronze',
+            }))
+          : [];
+      titles = Array.isArray(gl.titles) ? gl.titles : Array.isArray(gl.raw?.titles) ? gl.raw.titles : [];
+      const placeRank = gl.raw?.ladder?.place?.lagos ?? gl.ladder?.rank;
+      const tierVal = gl.raw?.ladder?.tiers?.lagos;
       characterStats = {
-        level: gl.ladder?.facts?.jobLv || gl.progression?.level || 8,
-        reputation: gl.ladder?.facts?.followers || gl.progression?.reputation || 106,
-        rank: gl.me?.title?.name || gl.progression?.rank || 'Yaba Techie',
-        tier: gl.ladder?.tiers?.lagos ? `TIER ${gl.ladder.tiers.lagos}` : 'TIER 3',
-        league: gl.ladder?.place?.lagos ? `Rank #${gl.ladder.place.lagos} in Lagos` : 'Lagos Diamond Tycoons',
+        level: gl.progression?.level ?? gl.raw?.ladder?.facts?.jobLv ?? 0,
+        reputation: gl.progression?.reputation ?? gl.raw?.ladder?.facts?.followers ?? 0,
+        rank: gl.progression?.rank || gl.raw?.me?.title?.name || 'Unranked',
+        tier: gl.progression?.tier || (tierVal !== undefined && tierVal !== null ? `TIER ${tierVal}` : 'Unranked'),
+        league: gl.ladder?.league || (placeRank ? `Rank #${placeRank} in Lagos` : 'Unplaced'),
       };
     } catch (err) {
-      // ignore
+      name = this.accountState.displayName || this.accountState.username;
+      online = false;
+      location = 'Lagos, Nigeria';
+      badges = [];
+      titles = [];
+      characterStats = {
+        level: 0,
+        reputation: 0,
+        rank: 'Unranked',
+        tier: 'Unranked',
+        league: 'Unplaced',
+      };
     }
 
     return {
@@ -568,14 +605,22 @@ export class OwnerAccountService implements OnApplicationBootstrap {
   // Sync Balance from Live Game API
   // -------------------------------------------------------------
   async syncBalance(): Promise<OwnerBalanceInfo> {
-    this.logger.log('Synchronizing owner live game balance via GET /api/gl/status...');
+    if (this.accountState.status !== 'CONNECTED' || !this.accountState.username) {
+      return this.getBalance();
+    }
+    this.logger.log(`Synchronizing live game balance for @${this.accountState.username} via GET /api/gl/status...`);
     try {
-      const gl = await this.gameService.getGlStatus();
-      if (gl && gl.ladder?.facts?.saved !== undefined) {
-        this.accountState.savedCash = BigInt(gl.ladder.facts.saved);
-        this.accountState.netWorth = BigInt(gl.ladder.facts.netWorth || 0);
+      const gl = await this.gameService.getGlStatus(true);
+      if (gl && gl.ok && gl.ladder?.facts?.saved !== undefined) {
+        if (gl.username) this.accountState.username = gl.username;
+        if (gl.name) this.accountState.displayName = gl.name;
+        this.accountState.savedCash = BigInt(Math.max(0, Math.floor(gl.ladder.facts.saved)));
+        this.accountState.netWorth = BigInt(Math.max(0, Math.floor(gl.ladder.facts.netWorth || 0)));
         this.accountState.lastSyncedAt = new Date().toISOString();
         this.accountState.status = 'CONNECTED';
+        this.databaseService.updateInventoryState({
+          recordedAvailableBalance: this.accountState.savedCash.toString(),
+        });
         this.saveSessionToFile();
         this.addLog('SYNC_BALANCE', 'SUCCESS', `Live balance synced: ₦LL ${Number(this.accountState.savedCash).toLocaleString()}`);
       }
@@ -624,6 +669,7 @@ export class OwnerAccountService implements OnApplicationBootstrap {
   async disconnectAccount() {
     this.accountState.status = 'NOT_CONNECTED';
     this.accountState.username = '';
+    this.accountState.displayName = undefined;
     this.accountState.encryptedPin = null;
     this.accountState.apiTokenEncrypted = null;
     this.accountState.reservedBalance = 0n;
@@ -631,6 +677,7 @@ export class OwnerAccountService implements OnApplicationBootstrap {
     this.accountState.netWorth = 0n;
     this.gameService.clearCookies();
     this.gameService.setOwnerUsername('');
+    this.gameService.setOwnerDisplayName('');
     this.gameService.setOwnerPin('');
     this.deleteSessionFile();
     this.addLog('DISCONNECT_ACCOUNT', 'WARNING', 'Owner account disconnected. Encrypted credentials purged.');

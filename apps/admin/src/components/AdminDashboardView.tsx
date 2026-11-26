@@ -374,27 +374,37 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             <p className="text-xs text-slate-400 mt-0.5">Real verified NGN volume vs In-Game Billions transferred</p>
           </div>
           <span className="text-xs font-mono font-bold text-primary bg-primary/10 px-2.5 py-1 rounded-lg">
-            Weekly Cleared: ₦236,000
+            Weekly Cleared: ₦{(
+              analytics?.weeklyCleared ??
+              (analytics?.revenueTrend || []).reduce((acc: number, item: any) => acc + (Number(item?.revenue) || 0), 0)
+            ).toLocaleString()}
           </span>
         </div>
 
         {/* Simplified High-Performance CSS Bar Chart */}
         <div className="grid grid-cols-7 gap-2 sm:gap-4 h-44 items-end pt-4 border-b border-surface-border px-2">
-          {(analytics?.revenueTrend || []).map((item: any, idx: number) => {
-            const heightPercent = Math.min(100, Math.max(15, (item.revenue / 60000) * 100));
-            return (
-              <div key={idx} className="flex flex-col items-center h-full justify-end group">
-                <div className="text-[10px] font-mono text-slate-400 mb-1 opacity-0 group-hover:opacity-100 transition">
-                  ₦{(item.revenue / 1000).toFixed(0)}k
+          {(() => {
+            const trend = analytics?.revenueTrend || [];
+            const maxRev = Math.max(1, ...trend.map((t: any) => Number(t?.revenue) || 0));
+            return trend.map((item: any, idx: number) => {
+              const rev = Number(item?.revenue) || 0;
+              const heightPercent = rev > 0 ? Math.min(100, Math.max(15, (rev / maxRev) * 100)) : 8;
+              return (
+                <div key={idx} className="flex flex-col items-center h-full justify-end group">
+                  <div className="text-[10px] font-mono text-slate-400 mb-1 opacity-0 group-hover:opacity-100 transition">
+                    ₦{rev >= 1000 ? `${(rev / 1000).toFixed(0)}k` : rev.toLocaleString()}
+                  </div>
+                  <div
+                    style={{ height: `${heightPercent}%` }}
+                    className={`w-full max-w-[42px] rounded-t-xl group-hover:brightness-110 transition cursor-pointer relative ${
+                      rev > 0 ? 'bg-gradient-to-t from-primary/80 to-primary' : 'bg-surface-border/50'
+                    }`}
+                  />
+                  <span className="text-[11px] font-mono text-slate-400 mt-2">{item.day}</span>
                 </div>
-                <div
-                  style={{ height: `${heightPercent}%` }}
-                  className="w-full max-w-[42px] bg-gradient-to-t from-primary/80 to-primary rounded-t-xl group-hover:brightness-110 transition cursor-pointer relative"
-                />
-                <span className="text-[11px] font-mono text-slate-400 mt-2">{item.day}</span>
-              </div>
-            );
-          })}
+              );
+            });
+          })()}
         </div>
       </div>
 
