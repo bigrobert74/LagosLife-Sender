@@ -52,8 +52,8 @@ async function run() {
   }
 
   // 1. Reset HEAD to latest commit on origin/main
-  console.log('1. Setting HEAD to ec25d90c251ed7839032533d3faa3bb13b9cbc45...');
-  const originMainSha = 'ec25d90c251ed7839032533d3faa3bb13b9cbc45';
+  console.log('1. Setting HEAD to 30cb1cbf41f6fd8fa1867d741d91ac1272b118bf...');
+  const originMainSha = '30cb1cbf41f6fd8fa1867d741d91ac1272b118bf';
   fs.writeFileSync(path.join(dir, '.git', 'refs', 'heads', 'main'), originMainSha + '\n', 'utf8');
 
   // 2. Remove sensitive, temp, or runtime session files from git index
@@ -83,7 +83,7 @@ async function run() {
 
   // 4. Create new commit
   console.log('3. Creating commit...');
-  const commitMsg = 'fix: enforce 100B per 70s transfer rate across fulfillment engine and admin UI';
+  const commitMsg = 'fix: prevent cooldown misparse as 2M cap, block micro-batching under 100B, log exact Lagos Life errors, and clean cancelJob state';
   const sha = await git.commit({
     fs,
     dir,

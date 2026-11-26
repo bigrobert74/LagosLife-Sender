@@ -416,30 +416,59 @@ export class FulfillmentService implements OnApplicationBootstrap {
   }
 
   private parseServerTransferLimit(errStr: string, respObj?: any): bigint | null {
+    if (respObj?.statusCode === 429 || respObj?.code === 'rate_limit_restricted') {
+      return null;
+    }
+
     const parseUnitNum = (numStr: string, suffix?: string): bigint | null => {
       const cleaned = numStr.replace(/,/g, '').trim();
       const val = Number(cleaned);
       if (!Number.isFinite(val) || val <= 0) return null;
       const s = (suffix || '').toLowerCase();
-      const mult = s === 't' ? 1e12 : s === 'b' ? 1e9 : s === 'm' ? 1e6 : s === 'k' ? 1e3 : 1;
+      const mult =
+        s === 't' || s === 'trillion'
+          ? 1e12
+          : s === 'b' || s === 'billion'
+            ? 1e9
+            : s === 'm' || s === 'million'
+              ? 1e6
+              : s === 'k' || s === 'thousand'
+                ? 1e3
+                : 1;
       const result = Math.floor(val * mult);
-      return result > 0 ? BigInt(result) : null;
+      return result >= 1000 ? BigInt(result) : null;
     };
 
-    const jsonLimit = respObj?.left ?? respObj?.maxAmount ?? respObj?.max ?? respObj?.limit;
+    const jsonLimit = respObj?.leftToday ?? respObj?.maxAmount ?? respObj?.maxSend ?? respObj?.limit ?? respObj?.max;
     if (jsonLimit !== undefined && jsonLimit !== null) {
-      const parsed = BigInt(Math.max(0, Math.floor(Number(jsonLimit))));
-      if (parsed > 0n) return parsed;
+      const parsed = Math.floor(Number(jsonLimit));
+      if (Number.isFinite(parsed) && parsed >= 1000) return BigInt(parsed);
     }
 
-    const leftMatch = errStr.match(/₦\s*([\d,]+(?:\.\d+)?)\s*([kmbt])?\s*left today/i);
+    const leftMatch = errStr.match(/₦\s*([\d,]+(?:\.\d+)?)\s*([kmbt])?(?![a-z])\s*left today/i);
     if (leftMatch?.[1]) {
       return parseUnitNum(leftMatch[1], leftMatch[2]);
     }
 
-    const capMatch = errStr.match(/(?:up to|max(?:imum)?(?: of)?|limit(?: is| of)?)\s*₦?\s*([\d,]+(?:\.\d+)?)\s*([kmbt])?/i);
-    if (capMatch?.[1]) {
-      return parseUnitNum(capMatch[1], capMatch[2]);
+    const nairaCapMatch = errStr.match(
+      /(?:up to|max(?:imum)?(?: of)?|limit(?: is| of)?)\s*(?:₦|NGN)\s*([\d,]+(?:\.\d+)?)\s*([kmbt])?(?![a-z])/i,
+    );
+    if (nairaCapMatch?.[1]) {
+      return parseUnitNum(nairaCapMatch[1], nairaCapMatch[2]);
+    }
+
+    const nairaUnitCapMatch = errStr.match(
+      /₦\s*([\d,]+(?:\.\d+)?)\s*([kmbt])?(?![a-z])\s*(?:at a time|per transfer|per send|a day|per day|limit|max)/i,
+    );
+    if (nairaUnitCapMatch?.[1]) {
+      return parseUnitNum(nairaUnitCapMatch[1], nairaUnitCapMatch[2]);
+    }
+
+    const wordUnitCapMatch = errStr.match(
+      /(?:up to|max(?:imum)?(?: of)?|limit(?: is| of)?)\s*([\d,]+(?:\.\d+)?)\s*(thousand|million|billion|trillion)\b/i,
+    );
+    if (wordUnitCapMatch?.[1]) {
+      return parseUnitNum(wordUnitCapMatch[1], wordUnitCapMatch[2]);
     }
 
     return null;
@@ -450,13 +479,18 @@ export class FulfillmentService implements OnApplicationBootstrap {
     if (Number.isFinite(fromJson) && fromJson > 0) {
       return Math.max(5, Math.ceil(fromJson));
     }
-    const textMatch = errStr.match(/(?:wait|cooldown|try again in|after)\s*(\d+)\s*(?:s|sec|seconds)/i);
+    const minMatch = errStr.match(/(?:wait|cooldown|try again in|after)\s*(\d+)\s*(?:m|min|mins|minute|minutes)\b/i);
+    if (minMatch?.[1]) {
+      const mins = Number(minMatch[1]);
+      if (Number.isFinite(mins) && mins > 0) return Math.max(60, mins * 60);
+    }
+    const textMatch = errStr.match(/(?:wait|cooldown|try again in|after)\s*(\d+)\s*(?:s|sec|secs|second|seconds)\b/i);
     if (textMatch?.[1]) {
       const sec = Number(textMatch[1]);
       if (Number.isFinite(sec) && sec > 0) return Math.max(5, sec);
     }
     if (respObj?.statusCode === 429 || respObj?.code === 'rate_limit_restricted' || /cooldown|too fast|rate limit/i.test(errStr)) {
-      return Math.max(10, defaultSec);
+      return Math.max(70, defaultSec);
     }
     return null;
   }
@@ -562,28 +596,13 @@ export class FulfillmentService implements OnApplicationBootstrap {
               'Game server transfer rejected';
             batchErrorMsg = errStr;
 
-            // 1. DYNAMIC HIGHEST-LIMIT ADAPTATION (₦100B, ₦50B, ₦10B, ₦10m, etc.)
-            const serverHighestLimit = this.parseServerTransferLimit(errStr, typeof resp === 'object' ? resp : undefined);
-            if (serverHighestLimit && serverHighestLimit > 0n && batchSizeBig > serverHighestLimit) {
-              this.logger.log(
-                `Adaptive Limit Applied: Lagos Life cap detected (₦LL ${Number(serverHighestLimit).toLocaleString()} per transfer). Stepping down batch size!`,
-              );
-              chunkAmountBig = serverHighestLimit;
-              isBatchedOrder = totalAmountBig > chunkAmountBig;
-              batchSizeBig = remainingAmountBig > chunkAmountBig ? chunkAmountBig : remainingAmountBig;
-              totalBatches =
-                (job.completedBatches || 0) +
-                Math.max(1, Number((remainingAmountBig + chunkAmountBig - 1n) / chunkAmountBig));
-              job.totalBatches = totalBatches;
-              job.isBatchedOrder = isBatchedOrder;
-              job.chunkAmount = chunkAmountBig.toString();
-              job.formattedChunkAmount = Number(chunkAmountBig).toLocaleString();
-              this.databaseService.saveFulfillmentJob(job);
-              this.syncLiveOrderProgress(order.orderNumber, job);
-              continue; // Retry immediately with adapted highest allowable chunk
-            }
+            this.ownerAccountService.recordFulfillmentLog(
+              'SEND_REJECTED',
+              'WARNING',
+              `#${order.orderNumber} (${targetPlayerId}) attempted ₦LL ${Number(batchSizeBig).toLocaleString()}: HTTP ${resp?.statusCode || '?'} - ${errStr}`,
+            );
 
-            // 2. ACTIVE 70-SECOND COOLDOWN (HTTP 429 or "wait X seconds") -> Wait countdown cleanly instead of failing!
+            // 1. CHECK ACTIVE COOLDOWN FIRST (HTTP 429 or "wait X seconds/minutes") -> Wait countdown cleanly without cutting batch size!
             const waitCooldownSec = this.parseCooldownSeconds(
               errStr,
               typeof resp === 'object' ? resp : undefined,
@@ -617,8 +636,38 @@ export class FulfillmentService implements OnApplicationBootstrap {
                 `Lagos Life cooldown active for #${order.orderNumber}. Waiting ${waitCooldownSec}s (until ${nextAt}) before Batch ${currentBatchNum}/${totalBatches}...`,
               );
               await new Promise((r) => setTimeout(r, waitMs));
+              if ((job.status as string) === 'CANCELLED') {
+                throw new Error('Transfer cancelled by administrator');
+              }
               job.nextBatchAt = undefined;
               this.databaseService.saveFulfillmentJob(job);
+              continue;
+            }
+
+            // 2. DYNAMIC LIMIT ADAPTATION (Only for genuine currency caps without creating impractical micro-batches)
+            const serverHighestLimit = this.parseServerTransferLimit(errStr, typeof resp === 'object' ? resp : undefined);
+            if (serverHighestLimit && serverHighestLimit > 0n && batchSizeBig > serverHighestLimit) {
+              const projectedBatches = Number((remainingAmountBig + serverHighestLimit - 1n) / serverHighestLimit);
+              if (serverHighestLimit < 1_000_000_000n && projectedBatches > 200) {
+                batchErrorMsg = `Lagos Life rejected ₦LL ${Number(batchSizeBig).toLocaleString()}: "${errStr}" (cap ₦LL ${Number(serverHighestLimit).toLocaleString()} would require ${projectedBatches.toLocaleString()} batches at 70s each).`;
+                this.ownerAccountService.recordFulfillmentLog('CAP_TOO_LOW', 'FAILED', batchErrorMsg);
+                break;
+              }
+              this.logger.log(
+                `Adaptive Limit Applied: Lagos Life cap detected (₦LL ${Number(serverHighestLimit).toLocaleString()} per transfer) from "${errStr}".`,
+              );
+              chunkAmountBig = serverHighestLimit;
+              isBatchedOrder = totalAmountBig > chunkAmountBig;
+              batchSizeBig = remainingAmountBig > chunkAmountBig ? chunkAmountBig : remainingAmountBig;
+              totalBatches =
+                (job.completedBatches || 0) +
+                Math.max(1, Number((remainingAmountBig + chunkAmountBig - 1n) / chunkAmountBig));
+              job.totalBatches = totalBatches;
+              job.isBatchedOrder = isBatchedOrder;
+              job.chunkAmount = chunkAmountBig.toString();
+              job.formattedChunkAmount = Number(chunkAmountBig).toLocaleString();
+              this.databaseService.saveFulfillmentJob(job);
+              this.syncLiveOrderProgress(order.orderNumber, job);
               continue;
             }
 
@@ -979,9 +1028,17 @@ export class FulfillmentService implements OnApplicationBootstrap {
     }
 
     job.status = 'CANCELLED';
+    job.nextBatchAt = undefined;
     job.lastError = 'Cancelled by administrator';
     job.updatedAt = new Date().toISOString();
+    this.activeTransferPromises.delete(orderNumber);
+    const totalBig = BigInt(job.currencyAmount || '0');
+    const deliveredBig = BigInt(job.deliveredAmount || '0');
+    if (totalBig > deliveredBig) {
+      this.ownerAccountService.releaseReservedBalance(totalBig - deliveredBig);
+    }
     this.databaseService.saveFulfillmentJob(job);
+    this.syncLiveOrderProgress(orderNumber, job, 'CANCELLED');
     return { ok: true, job };
   }
 

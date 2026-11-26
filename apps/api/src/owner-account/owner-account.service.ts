@@ -687,6 +687,10 @@ export class OwnerAccountService implements OnApplicationBootstrap {
   // -------------------------------------------------------------
   // Internal Helpers for Fulfillment Service
   // -------------------------------------------------------------
+  recordFulfillmentLog(action: string, status: 'SUCCESS' | 'FAILED' | 'WARNING', details: string) {
+    this.addLog(action, status, details);
+  }
+
   getDecryptedPin(): string {
     if (!this.accountState.encryptedPin) {
       throw new BadRequestException('No transaction PIN configured for owner account');
