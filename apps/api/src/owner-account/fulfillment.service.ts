@@ -380,7 +380,9 @@ export class FulfillmentService implements OnApplicationBootstrap {
       chunkAmountBig = MAX_GAME_SERVER_TRANSFER;
     }
 
-    const totalBatches = Math.max(1, Number((orderAmountBig + chunkAmountBig - 1n) / chunkAmountBig));
+    const totalBatches =
+      (job.completedBatches || 0) +
+      Math.max(1, Number((remainingToSendBig + chunkAmountBig - 1n) / chunkAmountBig));
     job.totalBatches = totalBatches;
     job.isBatchedOrder = isBatchedOrder;
     job.chunkAmount = chunkAmountBig.toString();
@@ -530,7 +532,11 @@ export class FulfillmentService implements OnApplicationBootstrap {
     const cooldownMs = defaultCooldownSec * 1000;
     const alreadyDeliveredBig = BigInt(job.deliveredAmount || '0');
     let remainingAmountBig = totalAmountBig > alreadyDeliveredBig ? totalAmountBig - alreadyDeliveredBig : 0n;
-    let totalBatches = Math.max(1, Number((totalAmountBig + chunkAmountBig - 1n) / chunkAmountBig));
+    let totalBatches =
+      remainingAmountBig > 0n
+        ? (job.completedBatches || 0) +
+          Math.max(1, Number((remainingAmountBig + chunkAmountBig - 1n) / chunkAmountBig))
+        : Math.max(1, job.completedBatches || 1);
     let currentBatchNum = (job.completedBatches || 0) + 1;
 
     job.totalBatches = totalBatches;
@@ -941,6 +947,7 @@ export class FulfillmentService implements OnApplicationBootstrap {
           (ord.status === 'WAITING_FOR_DELIVERY' ||
             ord.status === 'DELIVERY_PROCESSING' ||
             ord.status === 'DELIVERY_FAILED' ||
+            ord.status === 'PARTIALLY_DELIVERED' ||
             ord.status === 'COMPLETED') &&
           !this.jobs.has(ord.orderNumber)
         ) {
@@ -949,10 +956,12 @@ export class FulfillmentService implements OnApplicationBootstrap {
               ? 'SUCCEEDED'
               : ord.status === 'DELIVERY_FAILED'
               ? 'FAILED'
+              : ord.status === 'PARTIALLY_DELIVERED'
+              ? 'PARTIALLY_DELIVERED'
               : ord.status === 'DELIVERY_PROCESSING'
               ? 'PROCESSING'
               : 'QUEUED';
-          const job = this.createJobRecord(ord, initialStatus as any);
+          const job = this.createJobRecord(ord, initialStatus as any, (ord as any).lastDeliveryError);
           if (ord.status === 'COMPLETED') {
             job.deliveredAmount = ord.totalGameCurrency;
             job.formattedDeliveredAmount = ord.formattedGameAmount;
@@ -961,6 +970,11 @@ export class FulfillmentService implements OnApplicationBootstrap {
             if (ord.deliveryRecord?.inGameTransactionRef) {
               job.txId = ord.deliveryRecord.inGameTransactionRef;
             }
+            this.databaseService.saveFulfillmentJob(job);
+          } else if (ord.status === 'PARTIALLY_DELIVERED') {
+            job.deliveredAmount = (ord as any).deliveredAmount || '0';
+            job.formattedDeliveredAmount = Number(BigInt(job.deliveredAmount || '0')).toLocaleString();
+            job.completedBatches = (ord as any).completedBatches || 0;
             this.databaseService.saveFulfillmentJob(job);
           }
         }

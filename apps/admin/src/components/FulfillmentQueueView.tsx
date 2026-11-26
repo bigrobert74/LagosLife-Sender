@@ -139,6 +139,13 @@ export const FulfillmentQueueView: React.FC<FulfillmentQueueViewProps> = ({ onMa
             <span>MANUAL REVIEW REQ.</span>
           </span>
         );
+      case 'PARTIALLY_DELIVERED':
+        return (
+          <span className="px-2.5 py-1 rounded-full text-[10px] font-mono font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30 flex items-center space-x-1">
+            <AlertTriangle className="w-3 h-3" />
+            <span>PARTIALLY DELIVERED</span>
+          </span>
+        );
       case 'CANCELLED':
         return (
           <span className="px-2.5 py-1 rounded-full text-[10px] font-mono font-bold bg-slate-700 text-slate-400">
