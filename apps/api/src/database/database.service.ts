@@ -792,4 +792,23 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     this.writeTableToDisk('staff_users', this.staffUsers);
     return user;
   }
+
+  // -------------------------------------------------------------
+  // PACKAGES API
+  // -------------------------------------------------------------
+  public getPackages(): any[] | null {
+    return this.getKV<any[]>('packages');
+  }
+
+  public savePackages(packages: any[]): void {
+    this.setKV('packages', packages);
+  }
+
+  public getPackageSettings(): any | null {
+    return this.getKV<any>('package_settings');
+  }
+
+  public savePackageSettings(settings: any): void {
+    this.setKV('package_settings', settings);
+  }
 }

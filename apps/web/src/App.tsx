@@ -48,13 +48,19 @@ export default function App() {
     accountNumber: '8123456789',
   });
 
-  // Fetch Live Packages from Backend
+  // Live custom-amount rate from admin settings
+  const [ratePerBillion, setRatePerBillion] = useState<number>(10);
+
+  // Fetch Live Packages + Settings from Backend
   useEffect(() => {
     const fetchPackages = async () => {
       try {
-        const res = await fetch('http://localhost:3000/api/v1/packages');
-        if (res.ok) {
-          const json = await res.json();
+        const [pkgRes, setRes] = await Promise.all([
+          fetch('http://localhost:3000/api/v1/packages'),
+          fetch('http://localhost:3000/api/v1/packages/settings'),
+        ]);
+        if (pkgRes.ok) {
+          const json = await pkgRes.json();
           if (Array.isArray(json?.data) && json.data.length > 0) {
             setPackages(json.data);
             if (!selectedPkg) {
@@ -62,11 +68,19 @@ export default function App() {
             }
           }
         }
+        if (setRes.ok) {
+          const json = await setRes.json();
+          if (json?.data?.ratePerBillion) {
+            setRatePerBillion(Number(json.data.ratePerBillion));
+          }
+        }
       } catch (err) {
         // Silently use fallback packages if API is offline
       }
     };
     fetchPackages();
+    const interval = setInterval(fetchPackages, 30000); // refresh every 30s
+    return () => clearInterval(interval);
   }, []);
 
   // Fetch Live Bank Settings from Backend
@@ -93,10 +107,10 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Custom Trillions calculations (₦8,000 per 1 Trillion)
+  // Custom Trillions calculations — rate from admin settings
   const parsedTrillions = Math.max(0.1, parseFloat(customTrillionInput) || 1);
   const customCurrencyAmount = Math.round(parsedTrillions * 1_000_000_000_000).toString();
-  const customNairaPrice = Math.round(parsedTrillions * 8000);
+  const customNairaPrice = Math.round(parsedTrillions * 1000 * ratePerBillion); // ratePerBillion × 1000 billions per trillion
   const customFormattedAmount = Number.isInteger(parsedTrillions)
     ? `${parsedTrillions} Trillion`
     : `${parseFloat(parsedTrillions.toFixed(2))} Trillion`;

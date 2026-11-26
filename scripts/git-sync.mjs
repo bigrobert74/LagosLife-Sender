@@ -52,8 +52,8 @@ async function run() {
   }
 
   // 1. Reset HEAD to latest commit on origin/main
-  console.log('1. Setting HEAD to 7acc9eb60c7b5ca56a2e5bb0ff887835f39b5c75...');
-  const originMainSha = '7acc9eb60c7b5ca56a2e5bb0ff887835f39b5c75';
+  console.log('1. Setting HEAD to aceead9ff2bf6a581f88a7bfac1e1a13dcf9cfb4...');
+  const originMainSha = 'aceead9ff2bf6a581f88a7bfac1e1a13dcf9cfb4';
   fs.writeFileSync(path.join(dir, '.git', 'refs', 'heads', 'main'), originMainSha + '\n', 'utf8');
 
   // 2. Remove sensitive, temp, or runtime session files from git index
