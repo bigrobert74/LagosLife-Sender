@@ -37,6 +37,17 @@ export default function App() {
   const [isTermsOpen, setIsTermsOpen] = useState<boolean>(false);
   const [termsTab, setTermsTab] = useState<'terms' | 'privacy'>('terms');
 
+  // Live WhatsApp Links State
+  const [whatsappSettings, setWhatsappSettings] = useState<{
+    whatsappGroupLink: string;
+    whatsappSupportLink: string;
+    groupLabel: string;
+  }>({
+    whatsappGroupLink: '',
+    whatsappSupportLink: 'https://wa.me/2348012345678',
+    groupLabel: 'Join Our WhatsApp Group',
+  });
+
   // Live Bank Details State
   const [liveBankDetails, setLiveBankDetails] = useState<{
     bankName: string;
@@ -83,13 +94,16 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch Live Bank Settings from Backend
+  // Fetch Live Bank & WhatsApp Settings from Backend
   useEffect(() => {
-    const fetchLiveBank = async () => {
+    const fetchLiveSettings = async () => {
       try {
-        const res = await fetch('http://localhost:3000/api/v1/orders/bank-instructions');
-        if (res.ok) {
-          const json = await res.json();
+        const [bankRes, waRes] = await Promise.all([
+          fetch('http://localhost:3000/api/v1/orders/bank-instructions'),
+          fetch('http://localhost:3000/api/v1/settings/whatsapp'),
+        ]);
+        if (bankRes.ok) {
+          const json = await bankRes.json();
           if (json?.data) {
             setLiveBankDetails({
               bankName: json.data.bankName,
@@ -98,12 +112,22 @@ export default function App() {
             });
           }
         }
+        if (waRes.ok) {
+          const json = await waRes.json();
+          if (json?.data) {
+            setWhatsappSettings({
+              whatsappGroupLink: json.data.whatsappGroupLink || '',
+              whatsappSupportLink: json.data.whatsappSupportLink || 'https://wa.me/2348012345678',
+              groupLabel: json.data.groupLabel || 'Join Our WhatsApp Group',
+            });
+          }
+        }
       } catch (e) {
         // Keep fallback
       }
     };
-    fetchLiveBank();
-    const interval = setInterval(fetchLiveBank, 3000);
+    fetchLiveSettings();
+    const interval = setInterval(fetchLiveSettings, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -492,6 +516,9 @@ export default function App() {
           setTermsTab('privacy');
           setIsTermsOpen(true);
         }}
+        whatsappGroupLink={whatsappSettings.whatsappGroupLink}
+        whatsappSupportLink={whatsappSettings.whatsappSupportLink}
+        whatsappGroupLabel={whatsappSettings.groupLabel}
       />
 
       {/* MODALS */}
@@ -527,6 +554,7 @@ export default function App() {
         isOpen={isSupportOpen}
         onClose={() => setIsSupportOpen(false)}
         activeOrderNumber={activeOrder?.orderNumber}
+        whatsappSupportLink={whatsappSettings.whatsappSupportLink}
       />
 
       {/* Terms & Privacy Modal */}

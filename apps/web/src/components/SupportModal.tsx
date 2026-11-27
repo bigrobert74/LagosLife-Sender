@@ -5,12 +5,14 @@ interface SupportModalProps {
   isOpen: boolean;
   onClose: () => void;
   activeOrderNumber?: string;
+  whatsappSupportLink?: string;
 }
 
 export const SupportModal: React.FC<SupportModalProps> = ({
   isOpen,
   onClose,
   activeOrderNumber,
+  whatsappSupportLink,
 }) => {
   if (!isOpen) return null;
 
@@ -18,7 +20,9 @@ export const SupportModal: React.FC<SupportModalProps> = ({
     ? `Hello Lagos Life Support, I need assistance with Order #${activeOrderNumber}`
     : 'Hello Lagos Life Support, I have a question about buying in-game money.';
 
-  const whatsappUrl = `https://wa.me/2348012345678?text=${encodeURIComponent(prefilledMessage)}`;
+  const baseWhatsapp = (whatsappSupportLink || 'https://wa.me/2348012345678').trim();
+  const separator = baseWhatsapp.includes('?') ? '&' : '?';
+  const whatsappUrl = `${baseWhatsapp}${separator}text=${encodeURIComponent(prefilledMessage)}`;
   const mailtoUrl = `mailto:support@lagoslifemoney.shop?subject=${encodeURIComponent(
     activeOrderNumber ? `Order #${activeOrderNumber} Inquiry` : 'Customer Support Request',
   )}&body=${encodeURIComponent(prefilledMessage)}`;

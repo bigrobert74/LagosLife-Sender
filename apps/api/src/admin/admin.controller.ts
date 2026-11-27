@@ -340,4 +340,41 @@ export class AdminController {
     const data = await this.adminService.sendTestPhoneNotification();
     return { success: true, data };
   }
+
+  // -------------------------------------------------------------
+  // WHATSAPP GROUP & SUPPORT LINKS
+  // -------------------------------------------------------------
+  @Get('settings/whatsapp')
+  @ApiOperation({ summary: 'Get WhatsApp group and support links' })
+  async getWhatsappSettings() {
+    const data = this.adminService.getWhatsappSettings();
+    return { success: true, data };
+  }
+
+  @Patch('settings/whatsapp')
+  @ApiOperation({ summary: 'Update WhatsApp group and support links' })
+  async updateWhatsappSettings(
+    @Body()
+    body: {
+      whatsappGroupLink?: string;
+      whatsappSupportLink?: string;
+      groupLabel?: string;
+    },
+  ) {
+    const data = this.adminService.updateWhatsappSettings(body, 'lead_admin');
+    return { success: true, data };
+  }
+}
+
+@ApiTags('Public Settings')
+@Controller('api/v1/settings')
+export class PublicSettingsController {
+  constructor(private readonly adminService: AdminService) {}
+
+  @Get('whatsapp')
+  @ApiOperation({ summary: 'Get public WhatsApp group and support links for storefront' })
+  async getPublicWhatsappSettings() {
+    const data = this.adminService.getWhatsappSettings();
+    return { success: true, data };
+  }
 }

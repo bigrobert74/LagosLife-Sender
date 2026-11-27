@@ -1272,4 +1272,59 @@ export class AdminService implements OnApplicationBootstrap {
   async sendTestPhoneNotification() {
     return this.phoneNotificationsService.sendTestPush();
   }
+
+  // -------------------------------------------------------------
+  // WHATSAPP GROUP & SUPPORT LINKS
+  // -------------------------------------------------------------
+  getWhatsappSettings(): {
+    whatsappGroupLink: string;
+    whatsappSupportLink: string;
+    groupLabel: string;
+  } {
+    const defaults = {
+      whatsappGroupLink: '',
+      whatsappSupportLink: 'https://wa.me/2348012345678',
+      groupLabel: 'Join Our WhatsApp Group',
+    };
+    const stored = this.databaseService.getKV<typeof defaults>('whatsapp_settings');
+    return stored ? { ...defaults, ...stored } : defaults;
+  }
+
+  updateWhatsappSettings(
+    body: {
+      whatsappGroupLink?: string;
+      whatsappSupportLink?: string;
+      groupLabel?: string;
+    },
+    adminUsername = 'lead_admin',
+  ) {
+    const current = this.getWhatsappSettings();
+    const updated = {
+      whatsappGroupLink:
+        body.whatsappGroupLink !== undefined
+          ? body.whatsappGroupLink.trim()
+          : current.whatsappGroupLink,
+      whatsappSupportLink:
+        body.whatsappSupportLink !== undefined
+          ? body.whatsappSupportLink.trim()
+          : current.whatsappSupportLink,
+      groupLabel:
+        body.groupLabel !== undefined && body.groupLabel.trim()
+          ? body.groupLabel.trim()
+          : current.groupLabel,
+    };
+
+    this.databaseService.setKV('whatsapp_settings', updated);
+    this.logAudit(
+      adminUsername,
+      'UPDATE_WHATSAPP_SETTINGS',
+      'SETTINGS',
+      'whatsapp-links',
+      `Updated WhatsApp links (group=${updated.whatsappGroupLink || 'none'})`,
+      '127.0.0.1',
+      current,
+      updated,
+    );
+    return updated;
+  }
 }

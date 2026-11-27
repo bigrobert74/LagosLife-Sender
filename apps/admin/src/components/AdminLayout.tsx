@@ -43,6 +43,7 @@ import { OwnerAccountConnectionView } from './OwnerAccountConnectionView';
 import { AutomaticFulfillmentSettingsView } from './AutomaticFulfillmentSettingsView';
 import { FulfillmentQueueView } from './FulfillmentQueueView';
 import { ProductsPricingView } from './ProductsPricingView';
+import { WhatsappSettingsView } from './WhatsappSettingsView';
 import { OrderDetailsModal } from './OrderDetailsModal';
 import { GlobalSearchModal } from './GlobalSearchModal';
 import { NotificationDrawer } from './NotificationDrawer';
@@ -310,6 +311,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ adminUser, onLogout })
     { id: 'fulfillment-settings', label: 'Fulfillment Rules', icon: Zap },
     { section: 'SYSTEM CONFIG' },
     { id: 'banking', label: 'Bank Settings', icon: Building },
+    { id: 'whatsapp', label: 'WhatsApp Links', icon: MessageCircle },
     { id: 'audit', label: 'Audit & Staff', icon: Shield },
   ];
 
@@ -552,6 +554,8 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ adminUser, onLogout })
                 onUpdateBankSettings={handleUpdateBank}
               />
             )}
+
+            {activeView === 'whatsapp' && <WhatsappSettingsView />}
 
             {activeView === 'audit' && (
               <StaffAuditSettingsView

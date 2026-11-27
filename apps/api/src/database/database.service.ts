@@ -74,6 +74,7 @@ const KV_KEYS = [
   'phone_notification_settings',
   'owner_account_session',
   'game_cookies',
+  'whatsapp_settings',
 ] as const;
 
 @Injectable()
