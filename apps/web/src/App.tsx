@@ -60,8 +60,8 @@ export default function App() {
     accountNumber: '8123456789',
   });
 
-  // Live custom-amount rate from admin settings
-  const [ratePerBillion, setRatePerBillion] = useState<number>(10);
+  // Live custom-amount rate from admin settings (default ₦4/B = ₦4,000 / 1T)
+  const [ratePerBillion, setRatePerBillion] = useState<number>(4);
 
   // Fetch Live Packages + Settings from Backend
   useEffect(() => {
@@ -290,6 +290,7 @@ export default function App() {
           onSelectCustom={handleSelectCustom}
           customFormattedAmount={customFormattedAmount}
           customNairaPrice={customNairaPrice}
+          ratePerBillion={ratePerBillion}
         />
 
         {/* 4. Dedicated Buy Money Form & Username Input */}

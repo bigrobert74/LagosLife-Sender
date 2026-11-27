@@ -21,7 +21,7 @@ export interface PackageSettings {
 }
 
 const DEFAULT_SETTINGS: PackageSettings = {
-  ratePerBillion: 10,
+  ratePerBillion: 4,
   minBillions: 1,
   maxBillions: 1500,
 };

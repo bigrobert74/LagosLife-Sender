@@ -11,6 +11,7 @@ interface PackageGridProps {
   onSelectCustom?: () => void;
   customFormattedAmount?: string;
   customNairaPrice?: number;
+  ratePerBillion?: number;
 }
 
 export const PackageGrid: React.FC<PackageGridProps> = ({
@@ -21,6 +22,7 @@ export const PackageGrid: React.FC<PackageGridProps> = ({
   onSelectCustom,
   customFormattedAmount,
   customNairaPrice,
+  ratePerBillion = 4,
 }) => {
   return (
     <section id="packages-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
@@ -76,7 +78,9 @@ export const PackageGrid: React.FC<PackageGridProps> = ({
                 {isCustomSelected && customNairaPrice ? 'Price:' : 'Rate:'}
               </span>
               <div className="text-xl sm:text-2xl font-black text-emerald-400 font-mono">
-                {isCustomSelected && customNairaPrice ? `₦${customNairaPrice.toLocaleString()}` : '₦8,000 / 1T'}
+                {isCustomSelected && customNairaPrice
+                  ? `₦${customNairaPrice.toLocaleString()}`
+                  : `₦${(ratePerBillion * 1000).toLocaleString()} / 1T`}
               </div>
             </div>
 

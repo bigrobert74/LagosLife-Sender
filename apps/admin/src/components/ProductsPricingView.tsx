@@ -45,7 +45,7 @@ const emptyEdit = {
 
 export const ProductsPricingView: React.FC = () => {
   const [packages, setPackages] = useState<AdminPackage[]>([]);
-  const [settings, setSettings] = useState<PackageSettings>({ ratePerBillion: 10, minBillions: 1, maxBillions: 1500 });
+  const [settings, setSettings] = useState<PackageSettings>({ ratePerBillion: 4, minBillions: 1, maxBillions: 1500 });
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
@@ -59,7 +59,7 @@ export const ProductsPricingView: React.FC = () => {
   const [addSaving, setAddSaving] = useState(false);
 
   // Settings
-  const [settingsForm, setSettingsForm] = useState({ ratePerBillion: 10, minBillions: 1, maxBillions: 1500 });
+  const [settingsForm, setSettingsForm] = useState({ ratePerBillion: 4, minBillions: 1, maxBillions: 1500 });
   const [settingsSaving, setSettingsSaving] = useState(false);
 
   // Delete confirm
