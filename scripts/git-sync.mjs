@@ -52,8 +52,8 @@ async function run() {
   }
 
   // 1. Reset HEAD to latest commit on origin/main
-  console.log('1. Setting HEAD to aceead9ff2bf6a581f88a7bfac1e1a13dcf9cfb4...');
-  const originMainSha = 'aceead9ff2bf6a581f88a7bfac1e1a13dcf9cfb4';
+  console.log('1. Setting HEAD to da32af5b1012a9988193b0b8a41a18014fab69ee...');
+  const originMainSha = 'da32af5b1012a9988193b0b8a41a18014fab69ee';
   fs.writeFileSync(path.join(dir, '.git', 'refs', 'heads', 'main'), originMainSha + '\n', 'utf8');
 
   // 2. Remove sensitive, temp, or runtime session files from git index
@@ -83,7 +83,7 @@ async function run() {
 
   // 4. Create new commit
   console.log('3. Creating commit...');
-  const commitMsg = 'fix: prevent cooldown misparse as 2M cap, block micro-batching under 100B, log exact Lagos Life errors, and clean cancelJob state';
+  const commitMsg = 'feat: connect Products & Pricing view to Admin navigation sidebar and layout';
   const sha = await git.commit({
     fs,
     dir,

@@ -42,6 +42,7 @@ import { StaffAuditSettingsView } from './StaffAuditSettingsView';
 import { OwnerAccountConnectionView } from './OwnerAccountConnectionView';
 import { AutomaticFulfillmentSettingsView } from './AutomaticFulfillmentSettingsView';
 import { FulfillmentQueueView } from './FulfillmentQueueView';
+import { ProductsPricingView } from './ProductsPricingView';
 import { OrderDetailsModal } from './OrderDetailsModal';
 import { GlobalSearchModal } from './GlobalSearchModal';
 import { NotificationDrawer } from './NotificationDrawer';
@@ -300,6 +301,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ adminUser, onLogout })
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'orders', label: 'Orders', icon: Package, badge: orders.length },
     { id: 'payments', label: 'Payment Verification', icon: CreditCard, badge: overview?.kpiCards?.pendingReview, alert: true },
+    { id: 'packages', label: 'Products & Pricing', icon: Tag },
     { id: 'fulfillment-queue', label: 'Fulfillment Pipeline', icon: RotateCw },
     { id: 'inventory', label: 'Inventory & Ledger', icon: Coins },
     { id: 'customers', label: 'Customers', icon: Users },
@@ -518,6 +520,8 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ adminUser, onLogout })
                 onViewOrder={(o) => setInspectedOrder(o)}
               />
             )}
+
+            {activeView === 'packages' && <ProductsPricingView />}
 
             {activeView === 'fulfillment-queue' && (
               <FulfillmentQueueView
