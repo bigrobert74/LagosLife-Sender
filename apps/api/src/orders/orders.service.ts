@@ -287,4 +287,23 @@ export class OrdersService {
   async getAllOrders() {
     return this.databaseService.getAllOrders();
   }
+
+  getRecentPublicPurchases() {
+    const allowedStatuses = new Set([
+      'COMPLETED',
+      'DELIVERY_PROCESSING',
+      'PARTIALLY_DELIVERED',
+      'PAYMENT_UNDER_REVIEW',
+    ]);
+    return this.databaseService
+      .getAllOrders()
+      .filter((o) => allowedStatuses.has(o.status))
+      .slice(0, 10)
+      .map((o) => ({
+        username: o.gameUsername.startsWith('@') ? o.gameUsername : `@${o.gameUsername}`,
+        amount: o.formattedGameAmount,
+        createdAt: o.createdAt,
+        isReal: true,
+      }));
+  }
 }

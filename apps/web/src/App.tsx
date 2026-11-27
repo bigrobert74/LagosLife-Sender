@@ -12,6 +12,7 @@ import { OrderTrackerModal } from './components/OrderTrackerModal';
 import { OrderHistoryModal } from './components/OrderHistoryModal';
 import { SupportModal } from './components/SupportModal';
 import { TermsModal } from './components/TermsModal';
+import { RecentPurchasePopup } from './components/RecentPurchasePopup';
 import { PACKAGES as FALLBACK_PACKAGES, CurrencyPackage } from './data/packages';
 import { ArrowRight, ShieldCheck, CheckCircle2, AlertCircle, Loader2, Sparkles, Coins } from 'lucide-react';
 
@@ -563,6 +564,9 @@ export default function App() {
         onClose={() => setIsTermsOpen(false)}
         initialTab={termsTab}
       />
+
+      {/* Live Social-Proof Purchase Pop-in */}
+      <RecentPurchasePopup onSelectBuy={scrollToPackages} />
     </div>
   );
 }

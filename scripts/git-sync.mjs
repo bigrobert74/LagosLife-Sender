@@ -52,8 +52,8 @@ async function run() {
   }
 
   // 1. Reset HEAD to latest commit on origin/main
-  console.log('1. Setting HEAD to 3ae169fbfc2470a764a78f8d36851e707aa8f67f...');
-  const originMainSha = '3ae169fbfc2470a764a78f8d36851e707aa8f67f';
+  console.log('1. Setting HEAD to 11ee2846c73eb5cdc2875cff2ec325c5262a9b18...');
+  const originMainSha = '11ee2846c73eb5cdc2875cff2ec325c5262a9b18';
   fs.writeFileSync(path.join(dir, '.git', 'refs', 'heads', 'main'), originMainSha + '\n', 'utf8');
 
   // 2. Remove sensitive, temp, or runtime session files from git index
@@ -83,7 +83,7 @@ async function run() {
 
   // 4. Create new commit
   console.log('3. Creating commit...');
-  const commitMsg = 'feat: add editable WhatsApp group and support links in Admin Dashboard and Storefront footer';
+  const commitMsg = 'feat: add live social-proof recent purchase pop-in on storefront with real and simulated buyers';
   const sha = await git.commit({
     fs,
     dir,

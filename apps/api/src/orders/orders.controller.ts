@@ -33,6 +33,13 @@ export class OrdersController {
     };
   }
 
+  @Get('recent-activity')
+  @ApiOperation({ summary: 'Get recent anonymized purchase activity for storefront social proof' })
+  async getRecentActivity() {
+    const data = this.ordersService.getRecentPublicPurchases();
+    return { success: true, data };
+  }
+
   @Get(':orderNumber')
   @ApiOperation({ summary: 'Get order details and live payment status' })
   async getOrder(@Param('orderNumber') orderNumber: string) {
