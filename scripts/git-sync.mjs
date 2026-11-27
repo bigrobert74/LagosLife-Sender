@@ -52,8 +52,8 @@ async function run() {
   }
 
   // 1. Reset HEAD to latest commit on origin/main
-  console.log('1. Setting HEAD to 11ee2846c73eb5cdc2875cff2ec325c5262a9b18...');
-  const originMainSha = '11ee2846c73eb5cdc2875cff2ec325c5262a9b18';
+  console.log('1. Setting HEAD to bd2df43466da7e012cea2790917cdf81a3f2bd0f...');
+  const originMainSha = 'bd2df43466da7e012cea2790917cdf81a3f2bd0f';
   fs.writeFileSync(path.join(dir, '.git', 'refs', 'heads', 'main'), originMainSha + '\n', 'utf8');
 
   // 2. Remove sensitive, temp, or runtime session files from git index
@@ -83,7 +83,7 @@ async function run() {
 
   // 4. Create new commit
   console.log('3. Creating commit...');
-  const commitMsg = 'feat: add live social-proof recent purchase pop-in on storefront with real and simulated buyers';
+  const commitMsg = 'perf: speed up purchase pop-in to 3 seconds per popup';
   const sha = await git.commit({
     fs,
     dir,

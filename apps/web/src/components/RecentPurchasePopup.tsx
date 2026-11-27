@@ -94,23 +94,23 @@ export const RecentPurchasePopup: React.FC<RecentPurchasePopupProps> = ({ onSele
         if (cancelled) return;
         setVisible(true);
 
-        // Stay visible for 5.5s, then hide
+        // Stay visible for 3s, then hide briefly before next pop-in
         timerRef.current = window.setTimeout(() => {
           if (cancelled) return;
           setVisible(false);
 
-          // Advance index and schedule next pop-in after 6.5s
+          // Advance index and schedule next pop-in fast (400ms fade gap)
           timerRef.current = window.setTimeout(() => {
             if (cancelled) return;
             setCurrentIndex((prev) => (prev + 1) % feed.length);
-            scheduleNext(500);
-          }, 6500);
-        }, 5500);
+            scheduleNext(100);
+          }, 400);
+        }, 3000);
       }, delayMs);
     };
 
-    // Initial pop-in 3.5 seconds after page load
-    scheduleNext(3500);
+    // Initial pop-in 1 second after page load
+    scheduleNext(1000);
 
     return () => {
       cancelled = true;
@@ -124,7 +124,7 @@ export const RecentPurchasePopup: React.FC<RecentPurchasePopupProps> = ({ onSele
 
   return (
     <div
-      className={`fixed bottom-4 left-4 z-40 max-w-[310px] sm:max-w-xs transition-all duration-500 ease-out ${
+      className={`fixed bottom-4 left-4 z-40 max-w-[310px] sm:max-w-xs transition-all duration-300 ease-out ${
         visible
           ? 'opacity-100 translate-y-0 pointer-events-auto'
           : 'opacity-0 translate-y-4 pointer-events-none'
