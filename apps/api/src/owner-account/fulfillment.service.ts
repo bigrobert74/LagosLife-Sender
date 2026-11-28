@@ -86,6 +86,7 @@ export class FulfillmentService implements OnApplicationBootstrap {
 
   private jobs: Map<string, FulfillmentJobRecord> = new Map();
   private activeTransferPromises: Map<string, boolean> = new Map();
+  private pendingTwoStepCodes: Map<string, string> = new Map();
 
   private transactions: Array<{
     id: string;
@@ -584,10 +585,15 @@ export class FulfillmentService implements OnApplicationBootstrap {
           );
 
           try {
+            const twoStepCode = this.pendingTwoStepCodes.get(order.orderNumber);
+            if (twoStepCode) {
+              this.pendingTwoStepCodes.delete(order.orderNumber);
+            }
             sendResult = await this.gameService.sendMoney({
               to: targetPlayerId,
               amount: Number(batchSizeBig),
               pin: decryptedPin,
+              ...(twoStepCode ? { twoStepCode } : {}),
             });
 
             if (sendResult && sendResult.ok) {
@@ -1007,7 +1013,10 @@ export class FulfillmentService implements OnApplicationBootstrap {
     };
   }
 
-  async retryJob(orderNumber: string) {
+  async retryJob(orderNumber: string, twoStepCode?: string) {
+    if (twoStepCode && twoStepCode.trim()) {
+      this.pendingTwoStepCodes.set(orderNumber, twoStepCode.trim());
+    }
     const job = this.jobs.get(orderNumber);
     if (!job) {
       // If job doesn't exist yet in memory, trigger fresh fulfillment

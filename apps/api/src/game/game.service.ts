@@ -185,14 +185,26 @@ export class GameService implements OnApplicationBootstrap {
     this.saveCookiesToFile();
   }
 
-  clearCookies() {
+  clearCookies(preserveDeviceCookies = false) {
+    const preservedDev = preserveDeviceCookies ? this.cookies.get('ll_dev') : undefined;
+    const preservedVid = preserveDeviceCookies ? this.cookies.get('ll_vid') : undefined;
+
     this.cookies.clear();
+    if (preservedDev) this.cookies.set('ll_dev', preservedDev);
+    if (preservedVid) this.cookies.set('ll_vid', preservedVid);
+
     this.savedCash = 0n;
     this.netWorth = 0n;
     this.ownerDisplayName = '';
     this.ownerPlayerId = '';
     this.cachedGlStatus = null;
     this.glStatusInFlight = null;
+
+    if (preserveDeviceCookies && (preservedDev || preservedVid)) {
+      this.saveCookiesToFile();
+      return;
+    }
+
     this.databaseService?.deleteKV('game_cookies');
     const cookiePaths = [
       path.resolve(process.cwd(), 'game_cookies.json'),
@@ -364,9 +376,43 @@ export class GameService implements OnApplicationBootstrap {
     }
   }
 
-  public setCustomCookies(devCookie?: string, vidCookie?: string) {
-    if (devCookie) this.cookies.set('ll_dev', devCookie.trim());
-    if (vidCookie) this.cookies.set('ll_vid', vidCookie.trim());
+  public setCustomCookies(devCookie?: string, vidCookie?: string, extraCookies?: Record<string, string>) {
+    if (devCookie && devCookie.trim()) this.cookies.set('ll_dev', devCookie.trim());
+    if (vidCookie && vidCookie.trim()) this.cookies.set('ll_vid', vidCookie.trim());
+    if (extraCookies) {
+      for (const [k, v] of Object.entries(extraCookies)) {
+        if (k.trim() && v && v.trim()) {
+          this.cookies.set(k.trim(), v.trim());
+        }
+      }
+    }
+    this.cachedGlStatus = null;
+    this.glStatusInFlight = null;
+    this.saveCookiesToFile();
+  }
+
+  public importCookieString(rawCookieHeader: string): string[] {
+    const cleaned = (rawCookieHeader || '').replace(/^cookie:\s*/i, '').trim();
+    const importedKeys: string[] = [];
+    if (!cleaned) return importedKeys;
+
+    for (const part of cleaned.split(';')) {
+      const idx = part.indexOf('=');
+      if (idx <= 0) continue;
+      const key = part.slice(0, idx).trim();
+      const val = part.slice(idx + 1).trim();
+      if (key && val) {
+        this.cookies.set(key, val);
+        importedKeys.push(key);
+      }
+    }
+
+    if (importedKeys.length > 0) {
+      this.cachedGlStatus = null;
+      this.glStatusInFlight = null;
+      this.saveCookiesToFile();
+    }
+    return importedKeys;
   }
 
   // -------------------------------------------------------------
@@ -566,7 +612,7 @@ export class GameService implements OnApplicationBootstrap {
   // -------------------------------------------------------------
   // 3. POST /api/send — Transfer Money
   // -------------------------------------------------------------
-  async sendMoney(body: { to: string; amount: number; pin: string }) {
+  async sendMoney(body: { to: string; amount: number; pin: string; twoStepCode?: string }) {
     this.logger.log(`Live Cash Send: transferring ${body.amount} to recipient ID: ${body.to} at ${this.baseUrl}/api/send`);
 
     // 0. Lagos Life Game Server Rule: Maximum 100 Billion per single transfer
@@ -646,13 +692,25 @@ export class GameService implements OnApplicationBootstrap {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 12000);
 
+        const sendPayload: Record<string, any> = {
+          to: targetTo,
+          amount: body.amount,
+          pin,
+        };
+        if (body.twoStepCode && body.twoStepCode.trim()) {
+          sendPayload.code = body.twoStepCode.trim();
+          sendPayload.twoStepCode = body.twoStepCode.trim();
+        }
+
         const res = await fetch(`${this.baseUrl}/api/send`, {
           method: 'POST',
           headers: this.getHeaders(),
-          body: JSON.stringify({ to: targetTo, amount: body.amount, pin }),
+          body: JSON.stringify(sendPayload),
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
+        this.parseResponseCookies(res);
+        this.saveCookiesToFile();
 
         const retryAfterHeader = res.headers.get('retry-after');
         const data = await res.json().catch(() => ({}));

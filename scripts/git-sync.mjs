@@ -52,8 +52,8 @@ async function run() {
   }
 
   // 1. Reset HEAD to latest commit on origin/main
-  console.log('1. Setting HEAD to 907f5e14c9071af6f320d6b17634e2b0fbdf77cd...');
-  const originMainSha = '907f5e14c9071af6f320d6b17634e2b0fbdf77cd';
+  console.log('1. Setting HEAD to 1b7fe6d3b4ab31faec55e21d1d43b2bc8bfabba2...');
+  const originMainSha = '1b7fe6d3b4ab31faec55e21d1d43b2bc8bfabba2';
   fs.writeFileSync(path.join(dir, '.git', 'refs', 'heads', 'main'), originMainSha + '\n', 'utf8');
 
   // 2. Remove sensitive, temp, or runtime session files from git index
@@ -83,7 +83,7 @@ async function run() {
 
   // 4. Create new commit
   console.log('3. Creating commit...');
-  const commitMsg = 'feat: update High Roller VIP custom rate to 4000/1T (4 NGN per Billion) and bind dynamically to admin settings';
+  const commitMsg = 'feat: preserve trusted ll_dev/ll_vid device cookies, add browser cookie importer, and support 2-step code on fulfillment retry';
   const sha = await git.commit({
     fs,
     dir,

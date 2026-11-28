@@ -37,6 +37,8 @@ export const FulfillmentQueueView: React.FC<FulfillmentQueueViewProps> = ({ onMa
   const [activeTab, setActiveTab] = useState<'queue' | 'transactions'>('queue');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [twoStepOrder, setTwoStepOrder] = useState<string | null>(null);
+  const [twoStepCode, setTwoStepCode] = useState<string>('');
   const [notification, setNotification] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [now, setNow] = useState(Date.now());
 
@@ -76,15 +78,19 @@ export const FulfillmentQueueView: React.FC<FulfillmentQueueViewProps> = ({ onMa
     setTimeout(() => setNotification(null), 4000);
   };
 
-  const handleRetry = async (orderNumber: string) => {
+  const handleRetry = async (orderNumber: string, code?: string) => {
     setActionLoading(orderNumber);
     try {
       const res = await fetch(`http://localhost:3000/api/v1/admin/fulfillment/retry/${orderNumber}`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(code ? { twoStepCode: code.trim() } : {}),
       });
       const data = await res.json();
       if (data?.success && data.data?.ok) {
         showToast(`Fulfillment succeeded! TX ID: ${data.data.txId}`, 'success');
+        setTwoStepOrder(null);
+        setTwoStepCode('');
       } else {
         showToast(data?.data?.error || 'Retry attempt failed', 'error');
       }
@@ -348,13 +354,56 @@ export const FulfillmentQueueView: React.FC<FulfillmentQueueViewProps> = ({ onMa
                       </td>
                       <td className="py-3.5 px-4 text-right space-x-2">
                         {(job.status === 'FAILED' || job.status === 'MANUAL_REVIEW_REQUIRED' || job.status === 'PARTIALLY_DELIVERED') && (
-                          <button
-                            onClick={() => handleRetry(job.orderNumber)}
-                            disabled={actionLoading === job.orderNumber}
-                            className="px-2.5 py-1 rounded-lg bg-primary hover:bg-primary-hover text-black font-bold font-mono text-[10px] transition disabled:opacity-50"
-                          >
-                            {actionLoading === job.orderNumber ? 'Retrying...' : 'Retry Now'}
-                          </button>
+                          <>
+                            {twoStepOrder === job.orderNumber ? (
+                              <div className="inline-flex items-center space-x-1.5 mr-1">
+                                <input
+                                  type="text"
+                                  value={twoStepCode}
+                                  onChange={(e) => setTwoStepCode(e.target.value)}
+                                  placeholder="2-Step Code"
+                                  className="w-24 px-2 py-1 rounded-lg bg-background border border-primary text-white text-[10px] font-mono focus:outline-none"
+                                />
+                                <button
+                                  onClick={() => handleRetry(job.orderNumber, twoStepCode)}
+                                  disabled={actionLoading === job.orderNumber || !twoStepCode.trim()}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-bold font-mono text-[10px] transition disabled:opacity-50"
+                                >
+                                  Send
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setTwoStepOrder(null);
+                                    setTwoStepCode('');
+                                  }}
+                                  className="px-1.5 py-1 rounded-lg border border-surface-border text-slate-400 hover:text-white text-[10px]"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                {/two-step|two_step|2fa|code/i.test(job.lastError || '') && (
+                                  <button
+                                    onClick={() => {
+                                      setTwoStepOrder(job.orderNumber);
+                                      setTwoStepCode('');
+                                    }}
+                                    className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold font-mono text-[10px] transition"
+                                  >
+                                    2-Step Code
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => handleRetry(job.orderNumber)}
+                                  disabled={actionLoading === job.orderNumber}
+                                  className="px-2.5 py-1 rounded-lg bg-primary hover:bg-primary-hover text-black font-bold font-mono text-[10px] transition disabled:opacity-50"
+                                >
+                                  {actionLoading === job.orderNumber ? 'Retrying...' : 'Retry Now'}
+                                </button>
+                              </>
+                            )}
+                          </>
                         )}
                         {job.status !== 'SUCCEEDED' && job.status !== 'CANCELLED' && (
                           <button

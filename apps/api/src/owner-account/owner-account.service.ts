@@ -342,8 +342,9 @@ export class OwnerAccountService implements OnApplicationBootstrap {
     this.logger.log(`In-game login and connect for character @${cleanUsername} (2FA step: ${isTwoFactorStep})`);
     this.accountState.status = 'CONNECTING';
 
+    // Preserve trusted device cookies (ll_dev, ll_vid) across re-logins
     if (!isTwoFactorStep) {
-      this.gameService.clearCookies();
+      this.gameService.clearCookies(true);
       this.accountState.savedCash = 0n;
       this.accountState.netWorth = 0n;
       this.accountState.reservedBalance = 0n;
@@ -410,6 +411,53 @@ export class OwnerAccountService implements OnApplicationBootstrap {
       this.addLog('LOGIN_CONNECT', 'FAILED', `Lagos Life login failed: ${err.message}`);
       throw err;
     }
+  }
+
+  async importTrustedCookies(body: {
+    cookieHeader?: string;
+    llDev?: string;
+    llVid?: string;
+    llSession?: string;
+    llPass?: string;
+  }) {
+    const importedKeys: string[] = [];
+
+    if (body.cookieHeader && body.cookieHeader.trim()) {
+      importedKeys.push(...this.gameService.importCookieString(body.cookieHeader));
+    }
+
+    const extras: Record<string, string> = {};
+    if (body.llSession && body.llSession.trim()) extras['ll_session'] = body.llSession.trim();
+    if (body.llPass && body.llPass.trim()) extras['ll_pass'] = body.llPass.trim();
+
+    if (body.llDev || body.llVid || Object.keys(extras).length > 0) {
+      this.gameService.setCustomCookies(body.llDev, body.llVid, extras);
+      if (body.llDev?.trim()) importedKeys.push('ll_dev');
+      if (body.llVid?.trim()) importedKeys.push('ll_vid');
+      importedKeys.push(...Object.keys(extras));
+    }
+
+    if (importedKeys.length === 0) {
+      throw new BadRequestException('Provide a Cookie header string or at least ll_dev / ll_vid cookie values.');
+    }
+
+    this.saveSessionToFile();
+    const cookiesMap = this.gameService.getCookiesMap();
+    const testRes = await this.testConnection().catch(() => null);
+
+    this.addLog(
+      'IMPORT_COOKIES',
+      'SUCCESS',
+      `Imported trusted browser cookies: ${Array.from(new Set(importedKeys)).join(', ')}`,
+    );
+
+    return {
+      ok: true,
+      importedKeys: Array.from(new Set(importedKeys)),
+      storedCookieKeys: Object.keys(cookiesMap),
+      hasDeviceTrust: Boolean(cookiesMap['ll_dev'] || cookiesMap['ll_vid']),
+      connectionTest: testRes,
+    };
   }
 
   // -------------------------------------------------------------

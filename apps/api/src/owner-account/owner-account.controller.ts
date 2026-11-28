@@ -68,6 +68,22 @@ export class OwnerAccountController {
     return { success: true, data: res };
   }
 
+  @Post('owner-account/import-cookies')
+  @HttpCode(HttpStatus.OK)
+  async importTrustedCookies(
+    @Body()
+    body: {
+      cookieHeader?: string;
+      llDev?: string;
+      llVid?: string;
+      llSession?: string;
+      llPass?: string;
+    },
+  ) {
+    const res = await this.ownerAccountService.importTrustedCookies(body);
+    return { success: true, data: res };
+  }
+
   @Get('owner-account/status')
   async getStatus() {
     const res = await this.ownerAccountService.getStatus();
@@ -155,8 +171,11 @@ export class OwnerAccountController {
 
   @Post('fulfillment/retry/:orderNumber')
   @HttpCode(HttpStatus.OK)
-  async retryJob(@Param('orderNumber') orderNumber: string) {
-    const res = await this.fulfillmentService.retryJob(orderNumber);
+  async retryJob(
+    @Param('orderNumber') orderNumber: string,
+    @Body() body?: { twoStepCode?: string },
+  ) {
+    const res = await this.fulfillmentService.retryJob(orderNumber, body?.twoStepCode);
     return { success: true, data: res };
   }
 

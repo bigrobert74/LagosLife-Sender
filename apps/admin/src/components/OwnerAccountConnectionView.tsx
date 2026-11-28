@@ -61,6 +61,12 @@ export const OwnerAccountConnectionView: React.FC<OwnerAccountConnectionViewProp
   const [newPin, setNewPin] = useState('');
   const [isUpdatingPin, setIsUpdatingPin] = useState(false);
 
+  // Trusted Browser Device Cookies Import State
+  const [cookieHeader, setCookieHeader] = useState('');
+  const [llDev, setLlDev] = useState('');
+  const [llVid, setLlVid] = useState('');
+  const [isImportingCookies, setIsImportingCookies] = useState(false);
+
   const fetchStatusAndBalance = async () => {
     try {
       const [statusRes, balRes, logsRes] = await Promise.all([
@@ -88,6 +94,44 @@ export const OwnerAccountConnectionView: React.FC<OwnerAccountConnectionViewProp
   const showToast = (text: string, type: 'success' | 'error' | 'info') => {
     setNotification({ text, type });
     setTimeout(() => setNotification(null), 5000);
+  };
+
+  const handleImportCookies = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cookieHeader.trim() && !llDev.trim() && !llVid.trim()) {
+      showToast('Paste your browser Cookie string or enter ll_dev / ll_vid values.', 'error');
+      return;
+    }
+
+    setIsImportingCookies(true);
+    try {
+      const res = await fetch('http://localhost:3000/api/v1/admin/owner-account/import-cookies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cookieHeader: cookieHeader.trim() || undefined,
+          llDev: llDev.trim() || undefined,
+          llVid: llVid.trim() || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (json?.success && json.data?.ok) {
+        showToast(
+          `Trusted device cookies saved (${(json.data.importedKeys || []).join(', ')})!`,
+          'success',
+        );
+        setCookieHeader('');
+        setLlDev('');
+        setLlVid('');
+        fetchStatusAndBalance();
+      } else {
+        showToast(json?.message || json?.error || 'Failed to import cookies', 'error');
+      }
+    } catch (err: any) {
+      showToast('Error importing cookies: ' + err.message, 'error');
+    } finally {
+      setIsImportingCookies(false);
+    }
   };
 
   // -------------------------------------------------------------
@@ -800,6 +844,73 @@ export const OwnerAccountConnectionView: React.FC<OwnerAccountConnectionViewProp
           </div>
         </div>
       )}
+
+      {/* Trusted Browser Device Cookies Import Card (Prevents "Type your two-step code to send" on server) */}
+      <div className="bg-surface p-6 rounded-3xl border border-surface-border shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-bold text-white font-mono uppercase tracking-wider flex items-center space-x-2">
+              <Shield className="w-4 h-4 text-emerald-400" />
+              <span>Trusted Device Cookies (Bypass Transfer Two-Step Check)</span>
+            </h3>
+            <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
+              If Lagos Life says <span className="text-rose-400 font-mono">"Type your two-step code to send"</span>, paste your verified browser&apos;s <code className="text-primary font-mono">ll_dev</code> and <code className="text-primary font-mono">ll_vid</code> cookies (or full Cookie header) once here. They are saved permanently in PostgreSQL and preserved across re-logins.
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={handleImportCookies} className="space-y-3 text-xs">
+          <div>
+            <label className="block text-[11px] font-mono uppercase text-slate-300 mb-1">
+              Full Browser Cookie String (Optional — easiest: copy from DevTools → Network → Request Headers → cookie)
+            </label>
+            <input
+              type="text"
+              value={cookieHeader}
+              onChange={(e) => setCookieHeader(e.target.value)}
+              placeholder="ll_dev=...; ll_vid=...; ll_session=...; ll_pass=..."
+              className="w-full px-4 py-2.5 rounded-xl bg-background border border-surface-border text-white font-mono text-xs focus:border-primary focus:outline-none"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-mono uppercase text-slate-300 mb-1">
+                Or ll_dev Cookie Value
+              </label>
+              <input
+                type="text"
+                value={llDev}
+                onChange={(e) => setLlDev(e.target.value)}
+                placeholder="Paste ll_dev value"
+                className="w-full px-4 py-2 rounded-xl bg-background border border-surface-border text-white font-mono text-xs focus:border-primary focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-mono uppercase text-slate-300 mb-1">
+                Or ll_vid Cookie Value
+              </label>
+              <input
+                type="text"
+                value={llVid}
+                onChange={(e) => setLlVid(e.target.value)}
+                placeholder="Paste ll_vid value"
+                className="w-full px-4 py-2 rounded-xl bg-background border border-surface-border text-white font-mono text-xs focus:border-primary focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="pt-1">
+            <button
+              type="submit"
+              disabled={isImportingCookies}
+              className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-xs uppercase tracking-wider transition disabled:opacity-50"
+            >
+              {isImportingCookies ? 'Saving Device Cookies...' : 'Save Trusted Device Cookies'}
+            </button>
+          </div>
+        </form>
+      </div>
 
       {/* 2FA Verification Dialog (When Lagos Life triggers 2FA challenge) */}
       {requires2Fa && (
